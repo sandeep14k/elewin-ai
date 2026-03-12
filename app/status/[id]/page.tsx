@@ -1,0 +1,149 @@
+"use client"
+
+import { useState, useEffect, use } from "react"
+import { db } from "@/lib/firebase"
+import { doc, getDoc } from "firebase/firestore"
+import { Application } from "@/types/platform"
+import { 
+  Loader2, Github, CheckCircle2, Clock, 
+  Zap, Star, Trophy, ArrowLeft, Info, Search
+} from "lucide-react"
+import Link from "next/link"
+import Navbar from "@/components/navbar"
+import { 
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer 
+} from 'recharts'
+
+export default function CandidateStatusPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const [app, setApp] = useState<Application | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const docRef = doc(db, "applications", id)
+        const snap = await getDoc(docRef)
+        if (snap.exists()) {
+          setApp({ id: snap.id, ...snap.data() } as Application)
+        }
+      } catch (e) { console.error(e) } finally { setLoading(false) }
+    }
+    fetchStatus()
+  }, [id])
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
+
+  if (!app) return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-center p-6">
+      <Search className="w-16 h-16 text-slate-300 mb-4" />
+      <h1 className="text-2xl font-bold text-slate-800">Application Record Not Found</h1>
+      <p className="text-slate-500 mb-6">We couldn't find a record associated with this link.</p>
+      <Link href="/"><button className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold">Back to Home</button></Link>
+    </div>
+  )
+
+  const chartData = [
+    { subject: 'Frontend', A: app.analysis?.skillGraph?.frontend || 0 },
+    { subject: 'Backend', A: app.analysis?.skillGraph?.backend || 0 },
+    { subject: 'Database', A: app.analysis?.skillGraph?.database || 0 },
+    { subject: 'DevOps', A: app.analysis?.skillGraph?.devops || 0 },
+    { subject: 'Arch', A: app.analysis?.skillGraph?.architecture || 0 },
+  ]
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans pb-20">
+      <Navbar />
+      
+      <main className="max-w-4xl mx-auto px-4 py-12">
+        <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 mb-8 transition-colors">
+          <ArrowLeft className="w-4 h-4" /> Back to Job Board
+        </Link>
+
+        {/* --- STATUS HEADER --- */}
+        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm mb-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <p className="text-orange-600 text-xs font-black uppercase tracking-widest mb-1">Application Status</p>
+              <h1 className="text-3xl font-black text-slate-900">{app.jobTitle}</h1>
+              <div className="flex items-center gap-2 mt-2">
+                 <Github className="w-4 h-4 text-slate-400" />
+                 <span className="text-slate-500 text-sm font-medium">@{app.githubUsername}</span>
+              </div>
+            </div>
+
+            <div className={`px-6 py-3 rounded-2xl border-2 flex items-center gap-3 font-bold ${
+              app.status === 'shortlisted' ? 'bg-green-50 border-green-200 text-green-700' :
+              app.status === 'rejected' ? 'bg-slate-50 border-slate-200 text-slate-500' :
+              'bg-blue-50 border-blue-200 text-blue-700 animate-pulse'
+            }`}>
+              {app.status === 'shortlisted' ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+              {app.status === 'analyzed' ? 'AI Verification Complete' : 
+               app.status.charAt(0).toUpperCase() + app.status.slice(1)}
+            </div>
+          </div>
+        </div>
+
+        {/* --- GRID: SKILLS & FEEDBACK --- */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
+          
+          {/* Skill Graph (Left 2 Columns) */}
+          <div className="md:col-span-2 bg-[#050A15] rounded-3xl p-8 text-white flex flex-col items-center">
+            <h3 className="text-sm font-bold text-orange-500 uppercase tracking-widest mb-6">Your Skill Graph</h3>
+            <div className="w-full h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+                  <PolarGrid stroke="#1e293b" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} />
+                  <Radar name="Skills" dataKey="A" stroke="#f97316" fill="#f97316" fillOpacity={0.5} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[10px] text-slate-500 text-center mt-6 leading-relaxed">
+              This graph is generated by analyzing your GitHub commits, code complexity, and project architecture.
+            </p>
+          </div>
+
+          {/* AI Insights (Right 3 Columns) */}
+          <div className="md:col-span-3 space-y-6">
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-orange-500" /> AI Verification Note
+              </h3>
+              <p className="text-slate-600 leading-relaxed italic mb-6">
+                "{app.analysis?.aiSummary || "The AI is currently processing your technical profile. Check back in a few minutes."}"
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Learning Velocity</p>
+                    <p className="text-lg font-black text-slate-800">{app.analysis?.learningVelocity || "Calculating..."}</p>
+                 </div>
+                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Market Match</p>
+                    <p className="text-lg font-black text-slate-800">{app.analysis?.overallMatchScore || 0}%</p>
+                 </div>
+              </div>
+            </div>
+
+            {app.analysis?.isHiddenGem && (
+              <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl p-8 text-white shadow-lg shadow-orange-500/20">
+                 <div className="flex items-start gap-4">
+                    <div className="p-3 bg-white/20 rounded-2xl">
+                      <Trophy className="w-8 h-8 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-black mb-1">Hidden Gem Status</h4>
+                      <p className="text-orange-50 text-sm leading-relaxed">
+                        Our AI has flagged you as high-potential talent. Your Proof of Work on GitHub significantly exceeds typical expectations for your academic background.
+                      </p>
+                    </div>
+                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}

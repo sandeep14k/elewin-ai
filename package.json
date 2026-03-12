@@ -17,6 +17,7 @@
     "openai": "^6.27.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "recharts": "^3.8.0",
     "tailwind-merge": "^3.5.0",
     "unpdf": "^1.4.0"
   },
