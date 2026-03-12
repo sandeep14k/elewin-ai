@@ -49,9 +49,9 @@ async function fetchDeepGitHubData(username: string) {
   console.log(`[GITHUB] Fetching deep profile for: ${username}`);
 
   // OPTIMIZATION FIX: 
-  // - Reduced repositories from 50 to 30
-  // - Reduced commit history from 100 to 20
-  // This prevents GitHub's API from returning a 502 Bad Gateway timeout.
+  // Removed `defaultBranchRef { history }` completely.
+  // Traversing git commit history across multiple repos is the #1 cause of GitHub GraphQL 502 timeouts.
+  // We will rely on Languages, Topics, and Descriptions, which are fast and heavily indexed by GitHub.
   const query = `
     query($login: String!) {
       user(login: $login) {
@@ -64,7 +64,7 @@ async function fetchDeepGitHubData(username: string) {
         createdAt
         followers { totalCount }
         following { totalCount }
-        repositories(first: 30, orderBy: {field: PUSHED_AT, direction: DESC}) {
+        repositories(first: 20, orderBy: {field: PUSHED_AT, direction: DESC}) {
           nodes {
             name
             description
@@ -82,20 +82,6 @@ async function fetchDeepGitHubData(username: string) {
               edges {
                 size
                 node { name }
-              }
-            }
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 20) {
-                    nodes {
-                      committedDate
-                      message
-                      additions
-                      deletions
-                    }
-                  }
-                }
               }
             }
             issues { totalCount }
@@ -154,10 +140,6 @@ async function fetchDeepGitHubData(username: string) {
         languageMap[lang.name] = (languageMap[lang.name] || 0) + lang.bytes;
         totalCodeBytes += lang.bytes;
       });
-
-      // Get commits from history (already limited to 20 by GraphQL query)
-      const commits = repo.defaultBranchRef?.target?.history?.nodes || [];
-      const commitMessages = commits.map((c: any) => c.message);
       
       // Extract topics (crucial for semantic matching like "rest-api")
       const topics = repo.repositoryTopics?.nodes.map((n: any) => n.topic.name) || [];
@@ -169,11 +151,6 @@ async function fetchDeepGitHubData(username: string) {
         createdAt: repo.createdAt,
         pushedAt: repo.pushedAt,
         languages,
-        commitCount: commits.length,
-        commitMessages,
-        hasTests: commitMessages.some((msg: string) =>
-          /test|spec|jest|mocha|cypress/i.test(msg)
-        ),
         hasReadme: true, 
         issues: repo.issues.totalCount,
         prs: repo.pullRequests.totalCount,
@@ -386,9 +363,9 @@ export async function POST(req: Request) {
     const jobSnap = await getDoc(doc(db, "jobs", appData.jobId));
     const jobData = jobSnap.data() as any;
 
-    // We changed the cache key to v3 to guarantee a fresh pull with our new safety limits
+    // We changed the cache key to v4 to guarantee a fresh pull with our safe, history-free query
     const [githubData, resumeData] = await Promise.all([
-      getCachedOrFetch(`github_v3_${appData.githubUsername}`, () => fetchDeepGitHubData(appData.githubUsername)),
+      getCachedOrFetch(`github_v4_${appData.githubUsername}`, () => fetchDeepGitHubData(appData.githubUsername)),
       getCachedOrFetch(`resume_${appData.resumeUrl}`, () => extractStructuredResume(appData.resumeUrl))
     ]);
 
@@ -412,7 +389,6 @@ export async function POST(req: Request) {
         desc: r.description,
         tech: r.languages.map((l: any) => l.name),
         topics: r.topics, // INCLUDES TOPICS NOW!
-        recentCommits: r.commitMessages.slice(0, 5) // Exposes commit context
       }))
     };
 
