@@ -58,8 +58,7 @@ export default function EmployerDashboard() {
         <p className="text-slate-500 mb-6 max-w-md">You must be logged in as an employer to view your dashboard and shortlisted candidates.</p>
         <div className="flex gap-4">
             <Button onClick={() => router.push('/auth/login')} className="bg-slate-800 hover:bg-slate-900 text-white px-8">Sign In</Button>
-            <Button onClick={() => router.push('/auth/signup')} variant="outline" className="border-slate-300">Create Account</Button>
-        </div>
+           <Button onClick={() => router.push('/auth/signup')} className="bg-transparent border border-slate-300 text-slate-900 hover:bg-slate-50 px-8">Create Account</Button>        </div>
       </div>
     )
   }
