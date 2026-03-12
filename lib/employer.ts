@@ -7,7 +7,8 @@ import {
   doc, 
   getDoc,
   orderBy,
-  updateDoc // Added this for shortlisting later
+  updateDoc,
+  writeBatch // <-- THIS WAS MISSING
 } from "firebase/firestore";
 import { Job, Application } from "@/types/platform";
 
@@ -16,13 +17,11 @@ import { Job, Application } from "@/types/platform";
  */
 export const getJobWithApplications = async (jobId: string) => {
   try {
-    // Fetch the Job details
     const jobRef = doc(db, "jobs", jobId);
     const jobSnap = await getDoc(jobRef);
     if (!jobSnap.exists()) throw new Error("Job not found");
     const job = { id: jobSnap.id, ...jobSnap.data() } as Job;
 
-    // Fetch all applications for this job
     const appsRef = collection(db, "applications");
     const q = query(appsRef, where("jobId", "==", jobId));
     const querySnapshot = await getDocs(q);
@@ -80,7 +79,7 @@ export const getEmployerDashboard = async (companyId: string) => {
 };
 
 /**
- * 3. Update application status (Shortlist/Reject)
+ * 3. Update individual application status (Manual Shortlist/Reject)
  */
 export const updateApplicationStatus = async (applicationId: string, status: string) => {
   try {
@@ -89,6 +88,56 @@ export const updateApplicationStatus = async (applicationId: string, status: str
     return true;
   } catch (error) {
     console.error("Error updating status:", error);
+    return false;
+  }
+};
+
+/**
+ * 4. AUTONOMOUS AI SHORTLISTING
+ * Takes the top 'N' candidates based on overallMatchScore, shortlists them, and rejects the rest.
+ */
+export const executeAutonomousShortlist = async (jobId: string, requiredCount: number, applications: Application[]) => {
+  try {
+    // Filter out anyone who hasn't been analyzed yet
+    const analyzedApps = applications.filter(app => app.status === "analyzed");
+
+    // Sort mathematically by the AI's overallMatchScore
+    analyzedApps.sort((a, b) => {
+      const scoreA = a.analysis?.overallMatchScore || 0;
+      const scoreB = b.analysis?.overallMatchScore || 0;
+      return scoreB - scoreA;
+    });
+
+    // Slice the array to get the "Winners" and "Losers"
+    const topCandidates = analyzedApps.slice(0, requiredCount);
+    const rejectedCandidates = analyzedApps.slice(requiredCount);
+
+    // Update the database in one massive batch for efficiency
+    const batch = writeBatch(db);
+
+    topCandidates.forEach(app => {
+      if(app.id) {
+          const ref = doc(db, "applications", app.id);
+          batch.update(ref, { status: "shortlisted" });
+      }
+    });
+
+    rejectedCandidates.forEach(app => {
+      if(app.id) {
+          const ref = doc(db, "applications", app.id);
+          batch.update(ref, { status: "rejected" });
+      }
+    });
+
+    await batch.commit();
+
+    // Update the job status to "closed" so no one else can apply
+    const jobRef = doc(db, "jobs", jobId);
+    await updateDoc(jobRef, { status: "closed" });
+
+    return true;
+  } catch (error) {
+    console.error("Auto-shortlist failed:", error);
     return false;
   }
 };

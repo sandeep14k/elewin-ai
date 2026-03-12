@@ -5,114 +5,213 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// --- HELPER: GITHUB SCRAPER ---
-// In a production app, you'd use a GitHub Personal Access Token to avoid rate limits.
-async function fetchGitHubData(username: string) {
+// ==========================================
+// 1. DEEP GITHUB AGGREGATOR
+// ==========================================
+async function fetchDeepGitHubData(username: string) {
+  console.log(`[GITHUB] Fetching profile for: ${username}`);
   try {
-    const res = await fetch(`https://api.github.com/users/${username}/repos?sort=pushed&per_page=5`);
-    if (!res.ok) return null;
+    // Fetch up to 30 recent repos
+    const res = await fetch(`https://api.github.com/users/${username}/repos?sort=pushed&per_page=30`);
+    if (!res.ok) {
+      console.warn(`[GITHUB] Failed to fetch data. Status: ${res.status}`);
+      return null;
+    }
     const repos = await res.json();
     
-    // Simplify the data so we don't blow up OpenAI's token limit
-    const simplifiedRepos = repos.map((repo: any) => ({
-      name: repo.name,
-      description: repo.description,
-      language: repo.language,
-      size: repo.size,
-      fork: repo.fork, // Critical for detecting copied work
-      created_at: repo.created_at,
-      pushed_at: repo.pushed_at,
-    }));
-    return simplifiedRepos;
+    // Filter out forks (we only care about original code)
+    const originalRepos = repos.filter((r: any) => !r.fork);
+    
+    // Aggregate languages and total code size
+    const languageMap: Record<string, number> = {};
+    let totalSize = 0;
+    
+    const detailedRepos = originalRepos.slice(0, 10).map((repo: any) => {
+      if (repo.language) {
+        languageMap[repo.language] = (languageMap[repo.language] || 0) + 1;
+      }
+      totalSize += repo.size;
+      return {
+        name: repo.name,
+        language: repo.language,
+        description: repo.description,
+        pushed_at: repo.pushed_at,
+        size: repo.size
+      };
+    });
+
+    console.log(`[GITHUB] Found ${originalRepos.length} original repos. Top languages:`, Object.keys(languageMap));
+
+    return {
+      totalOriginalRepos: originalRepos.length,
+      totalCodeSizeKB: totalSize,
+      dominantLanguages: languageMap,
+      recentProjects: detailedRepos
+    };
   } catch (e) {
-    console.error("GitHub fetch failed", e);
+    console.error(`[GITHUB] Error:`, e);
     return null;
   }
 }
 
-// --- OPENAI SYSTEM PROMPT ---
+// ==========================================
+// 2. ROBUST PDF EXTRACTOR
+// ==========================================
+async function extractResumeText(pdfUrl: string) {
+  console.log(`[PDF] Processing URL: ${pdfUrl}`);
+  
+  let downloadUrl = pdfUrl;
+
+  // 1. Auto-Convert Google Drive 'view' links to 'download' links
+  if (downloadUrl.includes("drive.google.com/file/d/")) {
+    const match = downloadUrl.match(/\/d\/(.*?)\//);
+    if (match && match[1]) {
+      downloadUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+      console.log(`[PDF] Converted Google Drive link to direct download.`);
+    }
+  }
+  
+  // 2. Auto-Convert Dropbox links
+  if (downloadUrl.includes("dropbox.com") && downloadUrl.includes("dl=0")) {
+    downloadUrl = downloadUrl.replace("dl=0", "dl=1");
+    console.log(`[PDF] Converted Dropbox link to direct download.`);
+  }
+
+  try {
+    const response = await fetch(downloadUrl);
+    const contentType = response.headers.get("content-type") || "";
+
+    // 3. Safety Check: Did we still get a webpage?
+    if (contentType.includes("text/html")) {
+      console.warn(`[PDF] WARNING: URL returned a webpage (HTML), not a document. Link might be private or a portfolio website.`);
+      return "Candidate provided a website or restricted link instead of a readable PDF. Evaluate based on GitHub only.";
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    
+    console.log(`[PDF] Extracting text via unpdf...`);
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+    const { text } = await extractText(pdf, { mergePages: true });
+    
+    if (!text || text.trim().length === 0) {
+      console.warn(`[PDF] Extraction yielded empty text.`);
+      return "No readable text found in PDF.";
+    }
+
+    const cleanedText = text.replace(/\s+/g, ' ').substring(0, 5000);
+    console.log(`[PDF] Success. Extracted ${cleanedText.length} characters.`);
+    return cleanedText;
+  } catch (error) {
+    console.error(`[PDF] Extraction FATAL error:`, error);
+    return "Could not extract text due to document encryption, formatting, or broken link.";
+  }
+}
+
 const SYSTEM_PROMPT = `
-You are an elite Technical Recruiter AI for an Authenticity-First hiring platform.
-Your job is to analyze a candidate's GitHub data and compare it against the Employer's Required Skills.
+You are a ruthless, elite Code Auditor and Technical Recruiter. Your job is to uncover the truth about a candidate's actual abilities.
 
-We heavily penalize "Copy-Pasted" or "One-Click Cloned" portfolios. We reward iterative, consistent coding.
+**FORENSIC DIRECTIVES:**
+1. CROSS-EXAMINATION: Compare the [RESUME TEXT] against the [GITHUB DATA]. Look for lies. If the resume claims "Expert in Python" but the GitHub has zero Python repos, penalize them heavily.
+2. COMMITMENT & PROOF OF WORK: Are they building real things or just cloning tutorials? Look at the 'totalOriginalRepos' and 'totalCodeSizeKB'.
+3. ACADEMICS & EXPERIENCE: Read the resume text closely. Give credit for elite institutions, rigorous degrees, or impressive past roles.
 
-**YOUR TASKS:**
-1. Check if the candidate's GitHub repos actually use the "Required Skills".
-2. Check the 'fork' status and dates. If a repo is a fork, or if massive repos were created and pushed on the exact same day, flag it as potential plagiarism or low authenticity.
-3. Calculate an 'authenticityScore' (0-100). High scores mean original, iterative work.
-4. Calculate an 'overallMatchScore' (0-100) comparing their GitHub languages/descriptions to the Required Skills.
-5. Determine 'commitVelocity' (Low, Medium, High) based on how active they are.
+**CHAIN OF THOUGHT REQUIRED:**
+You MUST formulate an 'audit_trail' array first. Write down 3-4 specific observations comparing the resume claims to the GitHub reality BEFORE you assign any scores.
 
 **OUTPUT FORMAT (STRICT JSON):**
 {
-  "overallMatchScore": number,
-  "authenticityScore": number,
-  "verifiedSkills": ["string", "string"],
-  "plagiarismFlags": ["string"],
-  "commitVelocity": "Low" | "Medium" | "High",
-  "aiSummary": "A strict 2-sentence summary of your findings."
+  "audit_trail": [
+    "Observation 1 (e.g., Claims 3 years React, GitHub confirms heavy TypeScript/React usage).",
+    "Observation 2...",
+    "Observation 3..."
+  ],
+  "overallMatchScore": number (0-100),
+  "authenticityScore": number (0-100, low if they seem to be lying or cloning),
+  "weightedBreakdown": { 
+    "proofOfWork": number (0-100), 
+    "experience": number (0-100), 
+    "academics": number (0-100) 
+  },
+  "verifiedSkills": ["string"],
+  "plagiarismFlags": ["string", "Empty if none"],
+  "aiSummary": "A brutal, honest 2-sentence summary of your findings."
 }
 `;
 
 export async function POST(req: Request) {
+  const startTime = Date.now();
+  
   try {
     const { applicationId } = await req.json();
-    if (!applicationId) return NextResponse.json({ error: "No Application ID provided" }, { status: 400 });
-
-    // 1. Fetch the Application from Firebase
+    console.log(`\n===========================================`);
+    console.log(`[PROCESS START] Analyzing Application: ${applicationId}`);
+    
+    // Fetch App & Job Data
     const appRef = doc(db, "applications", applicationId);
     const appSnap = await getDoc(appRef);
     if (!appSnap.exists()) throw new Error("Application not found");
-    const appData = appSnap.data();
+    const appData = appSnap.data() as any;
 
-    // 2. Fetch the Job to get the Required Skills
     const jobRef = doc(db, "jobs", appData.jobId);
     const jobSnap = await getDoc(jobRef);
     if (!jobSnap.exists()) throw new Error("Job not found");
-    const jobData = jobSnap.data();
+    const jobData = jobSnap.data() as any;
 
-    // 3. Scrape GitHub
-    const githubData = await fetchGitHubData(appData.githubUsername);
-    if (!githubData) {
-        // Handle case where GitHub is invalid or rate-limited
-        await updateDoc(appRef, { status: "rejected", "analysis.aiSummary": "Failed to fetch GitHub profile." });
-        return NextResponse.json({ error: "GitHub profile invalid" }, { status: 400 });
-    }
+    console.log(`[DB] Fetched Job Req: ${jobData.title} | Target Skills: ${jobData.requiredSkills.join(", ")}`);
 
-    // 4. Send to OpenAI for Verification
+    // Run deep extraction in parallel to save execution time
+    const [githubData, resumeText] = await Promise.all([
+      fetchDeepGitHubData(appData.githubUsername),
+      extractResumeText(appData.resumeUrl) 
+    ]);
+
     const promptData = `
-      EMPLOYER REQUIRED SKILLS: ${jobData.requiredSkills.join(", ")}
-      CANDIDATE GITHUB REPOS (Recent 5): ${JSON.stringify(githubData, null, 2)}
+      --- JOB REQUIREMENTS ---
+      SKILLS: ${jobData.requiredSkills.join(", ")}
+      LEVEL: ${jobData.experienceLevel}
       
-      Analyze this candidate's authenticity and skill match.
+      --- CANDIDATE RESUME TEXT ---
+      ${resumeText}
+
+      --- CANDIDATE GITHUB DATA ---
+      ${JSON.stringify(githubData, null, 2)}
     `;
 
+    console.log(`[OPENAI] Sending payload to GPT-4-Turbo...`);
+    
+    // Call OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview", // Needs a smart model for reasoning
+      model: "gpt-4-turbo-preview", 
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: promptData }
       ],
-      temperature: 0.1,
+      temperature: 0.1, // Keep it cold and analytical
     });
 
-    const aiResponse = completion.choices[0].message.content;
-    if (!aiResponse) throw new Error("AI failed to respond");
-    
-    const analysisResults = JSON.parse(aiResponse);
+    const responseText = completion.choices[0].message.content || "{}";
+    const analysisResults = JSON.parse(responseText);
 
-    // 5. Update the Application in Firebase with the AI Results
+    console.log(`[OPENAI] Analysis Complete. Match Score: ${analysisResults.overallMatchScore}`);
+    console.log(`[OPENAI] Audit Trail:`, analysisResults.audit_trail);
+
+    // Save back to Firestore
+    console.log(`[DB] Updating application document...`);
     await updateDoc(appRef, {
-      status: "analyzed", // Move it out of pending!
+      status: "analyzed", 
       analysis: analysisResults
     });
 
-    return NextResponse.json({ success: true, analysis: analysisResults });
+    const endTime = Date.now();
+    console.log(`[PROCESS END] Total execution time: ${(endTime - startTime) / 1000}s`);
+    console.log(`===========================================\n`);
+
+    return NextResponse.json({ success: true, logs: "Check server terminal for detailed breakdown." });
 
   } catch (error: any) {
-    console.error("[Analysis API Error]", error);
-    return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+    console.error(`[FATAL ERROR] Pipeline crashed:`, error.message);
+    return NextResponse.json({ error: "Analysis failed", details: error.message }, { status: 500 });
   }
 }
