@@ -6,14 +6,18 @@ import { collection, query, where, getDocs, doc, getDoc } from "firebase/firesto
 import { Application, Job } from "@/types/platform"
 import { 
   UserCheck, ArrowLeft, Mail, Github, 
-  Trophy, School, Briefcase 
+  Trophy, School, Briefcase, Star, Zap, 
+  ExternalLink, Download, Calendar, MessageSquare,
+  FileText
 } from "lucide-react"
 import Link from "next/link"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
+import { 
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer 
+} from 'recharts'
 
 export default function ShortlistPage({ params }: { params: Promise<{ id: string }> }) {
-  // Unwrap the params promise
   const { id } = use(params)
   
   const [job, setJob] = useState<Job | null>(null)
@@ -36,6 +40,7 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
         const list: Application[] = []
         snap.forEach(doc => list.push({ id: doc.id, ...doc.data() } as Application))
         
+        // Sort by Match Score descending
         setShortlisted(list.sort((a, b) => (b.analysis?.overallMatchScore || 0) - (a.analysis?.overallMatchScore || 0)))
       } catch (e) {
         console.error(e)
@@ -46,95 +51,127 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
     fetchShortlist()
   }, [id])
 
-  if (loading) return <div className="p-20 text-center text-slate-500">Loading Shortlist...</div>
+  if (loading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#050A15]">
+      <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4" />
+      <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Assembling Finalists...</p>
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 pb-20">
       <Navbar />
-      <main className="max-w-5xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-12">
         
-        <Link href={`/employer/jobs/${id}`} className="text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1 mb-6">
-          <ArrowLeft className="w-4 h-4" /> Back to All Applicants
+        <Link href={`/employer/jobs/${id}`} className="inline-flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-orange-500 mb-8 transition-colors group">
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Full Pipeline
         </Link>
 
-        <div className="flex justify-between items-end mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Final Shortlist</h1>
-            <p className="text-slate-500">{job?.title} • {shortlisted.length} Verified Candidates</p>
+        {/* --- PAGE HEADER --- */}
+        <div className="bg-[#050A15] p-10 rounded-[40px] shadow-2xl mb-12 flex flex-col md:flex-row justify-between items-center gap-6 border border-white/5">
+          <div className="text-center md:text-left">
+            <h1 className="text-4xl font-black text-white tracking-tight flex items-center gap-3">
+              <Trophy className="w-10 h-10 text-amber-400" /> Final Selection
+            </h1>
+            <p className="text-slate-400 font-medium mt-2">
+              {job?.title} • {shortlisted.length} AI-Verified Engineers
+            </p>
           </div>
-          <Button className="bg-green-600 hover:bg-green-700">Export Shortlist (CSV)</Button>
+          <Button className="bg-white text-[#050A15] hover:bg-slate-100 font-black h-14 px-8 rounded-2xl shadow-xl transition-all">
+            <Download className="w-5 h-5 mr-2" /> Export Roster
+          </Button>
         </div>
 
-        <div className="grid gap-6">
+        {/* --- SHORTLIST GRID --- */}
+        <div className="grid gap-8">
           {shortlisted.length === 0 ? (
-             <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300 text-slate-500">
-               No candidates have been shortlisted yet.
+             <div className="text-center py-20 bg-white rounded-[40px] border-4 border-dashed border-slate-100 text-slate-400">
+               <UserCheck className="w-16 h-16 mx-auto mb-4 opacity-10" />
+               <p className="font-bold uppercase tracking-widest text-sm">No finalists locked in yet.</p>
              </div>
           ) : (
-            shortlisted.map((app) => (
-              <div key={app.id} className="bg-white border-2 border-green-100 rounded-2xl p-6 shadow-sm">
-                <div className="flex flex-col md:flex-row justify-between gap-6">
-                  
-                  {/* Profile Brief */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
-                        <UserCheck className="w-6 h-6 text-green-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-slate-900">{app.candidateName}</h3>
-                        <div className="flex gap-4 mt-1">
-                          <a href={`mailto:${app.candidateEmail}`} className="text-xs text-slate-500 flex items-center gap-1 hover:text-blue-600">
-                            <Mail className="w-3 h-3" /> {app.candidateEmail}
-                          </a>
-                          <a href={`https://github.com/${app.githubUsername}`} className="text-xs text-slate-500 flex items-center gap-1 hover:text-slate-900">
-                            <Github className="w-3 h-3" /> {app.githubUsername}
-                          </a>
+            shortlisted.map((app) => {
+              const chartData = [
+                { subject: 'Front', A: app.analysis?.skillGraph?.frontend || 0 },
+                { subject: 'Back', A: app.analysis?.skillGraph?.backend || 0 },
+                { subject: 'DB', A: app.analysis?.skillGraph?.database || 0 },
+                { subject: 'Ops', A: app.analysis?.skillGraph?.devops || 0 },
+                { subject: 'Arch', A: app.analysis?.skillGraph?.architecture || 0 },
+              ]
+
+              return (
+                <div key={app.id} className="bg-white border border-slate-200 rounded-[40px] overflow-hidden shadow-sm hover:shadow-xl transition-all group">
+                  <div className="flex flex-col lg:flex-row items-stretch">
+                    
+                    {/* Visual Skill Badge (Left Column) */}
+                    <div className="lg:w-64 bg-slate-50 p-8 flex flex-col items-center justify-center border-r border-slate-100">
+                        <div className="w-40 h-40">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
+                              <PolarGrid stroke="#e2e8f0" />
+                              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fontWeight: 'bold', fill: '#94a3b8' }} />
+                              <Radar name="Skills" dataKey="A" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.5} />
+                            </RadarChart>
+                          </ResponsiveContainer>
                         </div>
+                        <div className="mt-4 text-center">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Match Score</p>
+                           <p className="text-4xl font-black text-slate-900">{app.analysis?.overallMatchScore}%</p>
+                        </div>
+                    </div>
+
+                    {/* Candidate Details (Middle Column) */}
+                    <div className="flex-1 p-8 md:p-10">
+                      <div className="flex flex-wrap items-center gap-3 mb-4">
+                        <h3 className="text-3xl font-black text-slate-900">{app.candidateName}</h3>
+                        {app.analysis?.isHiddenGem && (
+                          <div className="bg-amber-400 text-amber-900 px-3 py-1 rounded-full text-[10px] font-black uppercase flex items-center gap-1 shadow-lg shadow-amber-400/20">
+                            <Star className="w-3 h-3 fill-current" /> Hidden Gem
+                          </div>
+                        )}
+                        <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border-2 ${
+                          app.analysis?.learningVelocity === 'High' ? 'bg-blue-600 text-white border-blue-700' : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          <Zap className="w-3 h-3 mr-1 inline" /> Velocity: {app.analysis?.learningVelocity}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-4 mb-8">
+                        <a href={`mailto:${app.candidateEmail}`} className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-orange-600">
+                          <Mail className="w-4 h-4" /> {app.candidateEmail}
+                        </a>
+                        <a href={`https://github.com/${app.githubUsername}`} target="_blank" className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900">
+                          <Github className="w-4 h-4" /> @{app.githubUsername}
+                        </a>
+                      </div>
+
+                      <div className="bg-slate-50 p-6 rounded-[24px] border border-slate-100">
+                        <p className="text-sm text-slate-600 leading-relaxed italic">
+                          <MessageSquare className="w-4 h-4 text-slate-300 inline mr-2 mb-1" />
+                          "{app.analysis?.aiSummary}"
+                        </p>
                       </div>
                     </div>
 
-                    {/* Weighted Insight Grid */}
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase mb-1">
-                          <Trophy className="w-3 h-3 text-orange-500" /> PoW Score
-                        </div>
-                        <p className="text-lg font-bold text-slate-800">{app.analysis?.weightedBreakdown?.proofOfWork || 0}%</p>
-                      </div>
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase mb-1">
-                          <Briefcase className="w-3 h-3 text-blue-500" /> Experience
-                        </div>
-                        <p className="text-lg font-bold text-slate-800">{app.analysis?.weightedBreakdown?.experience || 0}%</p>
-                      </div>
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase mb-1">
-                          <School className="w-3 h-3 text-purple-500" /> Academics
-                        </div>
-                        <p className="text-lg font-bold text-slate-800">{app.analysis?.weightedBreakdown?.academics || 0}%</p>
-                      </div>
+                    {/* Action Panel (Right Column) */}
+                    <div className="lg:w-72 p-8 bg-slate-50/50 flex flex-col gap-3 justify-center border-l border-slate-100">
+                       <Button className="w-full bg-[#050A15] hover:bg-black text-white h-14 rounded-2xl font-black shadow-xl">
+                         <Calendar className="w-4 h-4 mr-2" /> Schedule Call
+                       </Button>
+                       <a href={app.resumeUrl} target="_blank" className="w-full">
+                         <Button variant="outline" className="w-full h-14 rounded-2xl font-black border-slate-200 bg-white">
+                           <FileText className="w-4 h-4 mr-2" /> View Resume
+                         </Button>
+                       </a>
+                       <Link href={`https://github.com/${app.githubUsername}`} target="_blank" className="text-center text-[10px] font-black text-slate-400 uppercase hover:text-orange-500 transition-colors mt-2 flex items-center justify-center gap-1">
+                         Review Source Code <ExternalLink className="w-3 h-3" />
+                       </Link>
                     </div>
+
                   </div>
-
-                  {/* Actions */}
-                  <div className="md:w-48 flex flex-col gap-3">
-                    <div className="text-center p-3 bg-green-50 rounded-xl border border-green-200">
-                      <p className="text-[10px] font-bold text-green-700 uppercase">Match Score</p>
-                      <p className="text-2xl font-black text-green-800">{app.analysis?.overallMatchScore}</p>
-                    </div>
-                    <Button variant="outline" className="w-full text-slate-700">Schedule Interview</Button>
-                  </div>
-
                 </div>
-                
-                <div className="mt-4 pt-4 border-t border-slate-100">
-                  <p className="text-sm text-slate-600 italic">
-                    <span className="font-bold text-slate-800 not-italic">Verification Note:</span> {app.analysis?.aiSummary}
-                  </p>
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </main>

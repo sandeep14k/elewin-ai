@@ -10,24 +10,35 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // ==========================================
 async function getCachedOrFetch<T>(
   cacheKey: string,
-  fetchFn: () => Promise<T>,
-  ttlSeconds: number = 7 * 24 * 60 * 60 // 7 days
-): Promise<T> {
-  const cacheRef = doc(db, "cache", cacheKey);
+  fetchFn: () => Promise<T | null>,
+  ttlSeconds: number = 7 * 24 * 60 * 60 
+): Promise<T | null> {
+  // SANITIZE KEY
+  const safeKey = cacheKey.replace(/[\/.:?]/g, "_");
+  
+  const cacheRef = doc(db, "cache", safeKey);
   const cacheSnap = await getDoc(cacheRef);
   const now = Date.now();
 
   if (cacheSnap.exists()) {
     const data = cacheSnap.data();
     if (now - data.timestamp < ttlSeconds * 1000) {
-      console.log(`[CACHE] Hit for ${cacheKey}`);
+      console.log(`[CACHE] Hit for ${safeKey}`);
       return data.value as T;
     }
   }
 
-  console.log(`[CACHE] Miss for ${cacheKey}, fetching fresh data`);
+  console.log(`[CACHE] Miss for ${safeKey}, fetching fresh data`);
   const value = await fetchFn();
-  await setDoc(cacheRef, { value, timestamp: now });
+  
+  // CRITICAL FIX: Only save to cache if the fetch actually succeeded (not null)
+  // This prevents saving 502 errors or empty data for 7 days.
+  if (value !== null && value !== undefined) {
+    await setDoc(cacheRef, { value, timestamp: now });
+  } else {
+    console.warn(`[CACHE] Warning: Fetch returned null for ${safeKey}, bypassing cache save.`);
+  }
+  
   return value;
 }
 
@@ -37,6 +48,10 @@ async function getCachedOrFetch<T>(
 async function fetchDeepGitHubData(username: string) {
   console.log(`[GITHUB] Fetching deep profile for: ${username}`);
 
+  // OPTIMIZATION FIX: 
+  // - Reduced repositories from 50 to 30
+  // - Reduced commit history from 100 to 20
+  // This prevents GitHub's API from returning a 502 Bad Gateway timeout.
   const query = `
     query($login: String!) {
       user(login: $login) {
@@ -49,13 +64,20 @@ async function fetchDeepGitHubData(username: string) {
         createdAt
         followers { totalCount }
         following { totalCount }
-        repositories(first: 50, orderBy: {field: PUSHED_AT, direction: DESC}) {
+        repositories(first: 30, orderBy: {field: PUSHED_AT, direction: DESC}) {
           nodes {
             name
             description
             createdAt
             pushedAt
             isFork
+            repositoryTopics(first: 5) {
+              nodes {
+                topic {
+                  name
+                }
+              }
+            }
             languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
               edges {
                 size
@@ -65,7 +87,7 @@ async function fetchDeepGitHubData(username: string) {
             defaultBranchRef {
               target {
                 ... on Commit {
-                  history(first: 100) {
+                  history(first: 20) {
                     nodes {
                       committedDate
                       message
@@ -122,6 +144,7 @@ async function fetchDeepGitHubData(username: string) {
     const repos = user.repositories.nodes.filter((r: any) => !r.isFork);
     const languageMap: Record<string, number> = {};
     let totalCodeBytes = 0;
+    
     const detailedRepos = repos.map((repo: any) => {
       const languages = repo.languages.edges.map((edge: any) => ({
         name: edge.node.name,
@@ -132,22 +155,26 @@ async function fetchDeepGitHubData(username: string) {
         totalCodeBytes += lang.bytes;
       });
 
-      // Get commits from history
+      // Get commits from history (already limited to 20 by GraphQL query)
       const commits = repo.defaultBranchRef?.target?.history?.nodes || [];
       const commitMessages = commits.map((c: any) => c.message);
+      
+      // Extract topics (crucial for semantic matching like "rest-api")
+      const topics = repo.repositoryTopics?.nodes.map((n: any) => n.topic.name) || [];
 
       return {
         name: repo.name,
         description: repo.description,
+        topics,
         createdAt: repo.createdAt,
         pushedAt: repo.pushedAt,
         languages,
         commitCount: commits.length,
-        commitMessages: commitMessages.slice(0, 20), // keep only recent 20 for brevity
+        commitMessages,
         hasTests: commitMessages.some((msg: string) =>
           /test|spec|jest|mocha|cypress/i.test(msg)
         ),
-        hasReadme: true, // we can't easily check from GraphQL; assume true if repo has description maybe
+        hasReadme: true, 
         issues: repo.issues.totalCount,
         prs: repo.pullRequests.totalCount,
       };
@@ -182,11 +209,11 @@ async function fetchDeepGitHubData(username: string) {
     };
   } catch (error) {
     console.error(`[GITHUB] Error:`, error);
-    return null;
+    return null; // Return null so the cache function knows NOT to save this
   }
 }
 
-// Helper: calculate longest streak of consecutive days with contributions
+// Helper: calculate longest streak
 function calculateLongestStreak(days: { contributionCount: number; date: string }[]): number {
   let maxStreak = 0;
   let currentStreak = 0;
@@ -207,7 +234,6 @@ function calculateLongestStreak(days: { contributionCount: number; date: string 
 async function extractStructuredResume(pdfUrl: string) {
   console.log(`[RESUME] Extracting structured data from: ${pdfUrl}`);
 
-  // First, get raw text (using existing function)
   const rawText = await extractResumeText(pdfUrl);
 
   if (rawText.startsWith("Candidate provided a website") || rawText.includes("Could not extract")) {
@@ -221,7 +247,7 @@ Extract the following information from the resume text into a JSON object. Be th
 - email: string
 - phone: string
 - location: string
-- summary: string (brief professional summary if available)
+- summary: string
 - education: array of { institution: string, degree: string, field: string, startDate: string, endDate: string, gpa: number? }
 - workExperience: array of { company: string, title: string, startDate: string, endDate: string, description: string, skillsUsed: string[] }
 - projects: array of { name: string, description: string, technologies: string[], url: string? }
@@ -233,7 +259,7 @@ Extract the following information from the resume text into a JSON object. Be th
 If a field is not found, set it to null or empty array.
 
 Resume text:
-${rawText.slice(0, 6000)} // limit to avoid token overflow
+${rawText.slice(0, 6000)}
 
 Respond with JSON only.
   `;
@@ -258,320 +284,192 @@ Respond with JSON only.
 }
 
 // ==========================================
-// 4. CROSS-VALIDATION ENGINE
+// 4. PDF TEXT EXTRACTOR
 // ==========================================
-function crossValidate(
-  resume: any,
-  github: any,
-  requiredSkills: string[]
-) {
-  const flags: string[] = [];
-  const skillEvidence: Record<string, { found: boolean; source: string }> = {};
-
-  // Initialize skillEvidence for required skills
-  requiredSkills.forEach(skill => {
-    skillEvidence[skill] = { found: false, source: "" };
-  });
-
-  // Check resume skills
-  if (resume?.structured?.skills) {
-    const resumeSkills = resume.structured.skills.map((s: string) => s.toLowerCase());
-    requiredSkills.forEach(skill => {
-      if (resumeSkills.includes(skill.toLowerCase())) {
-        skillEvidence[skill].found = true;
-        skillEvidence[skill].source = "resume";
-      }
-    });
-  }
-
-  // Check GitHub languages + repo descriptions/topics
-  if (github) {
-    const githubLanguages = Object.keys(github.languageBreakdown || {}).map(l => l.toLowerCase());
-    const githubRepos = github.repos || [];
-
-    requiredSkills.forEach(skill => {
-      const skillLower = skill.toLowerCase();
-
-      // Match against language breakdown
-      if (githubLanguages.includes(skillLower)) {
-        skillEvidence[skill].found = true;
-        skillEvidence[skill].source = "github_languages";
-      }
-
-      // Also search repo names/descriptions for skill mentions (e.g., "react" in description)
-      const mentionsInRepos = githubRepos.some((repo: any) =>
-        (repo.name.toLowerCase().includes(skillLower) ||
-          repo.description?.toLowerCase().includes(skillLower))
-      );
-      if (mentionsInRepos && !skillEvidence[skill].found) {
-        skillEvidence[skill].found = true;
-        skillEvidence[skill].source = "github_mentions";
-      }
-    });
-  }
-
-  // Generate flags for missing skills
-  requiredSkills.forEach(skill => {
-    if (!skillEvidence[skill].found) {
-      flags.push(`No evidence of "${skill}" in resume or GitHub`);
-    } else if (skillEvidence[skill].source === "resume" && github && !githubLanguages.includes(skill.toLowerCase())) {
-      flags.push(`"${skill}" claimed in resume but not visible in GitHub languages`);
-    }
-  });
-
-  // Experience vs commit history
-  if (resume?.structured?.workExperience && github?.contributions) {
-    const earliestCommitYear = github.profile?.createdAt
-      ? new Date(github.profile.createdAt).getFullYear()
-      : null;
-    const totalExpYears = resume.structured.workExperience.reduce((acc: number, exp: any) => {
-      if (exp.startDate && exp.endDate) {
-        const start = new Date(exp.startDate).getFullYear();
-        const end = exp.endDate === "Present" ? new Date().getFullYear() : new Date(exp.endDate).getFullYear();
-        return acc + (end - start);
-      }
-      return acc;
-    }, 0);
-
-    if (earliestCommitYear && totalExpYears > 0) {
-      const githubYears = new Date().getFullYear() - earliestCommitYear;
-      if (totalExpYears > githubYears + 2) {
-        flags.push(`Resume claims ${totalExpYears} years of experience, but GitHub activity spans only ${githubYears} years`);
-      }
-    }
-  }
-
-  // Check for potential cloned/tutorial repos
-  if (github?.repos) {
-    github.repos.forEach((repo: any) => {
-      if (repo.commitCount === 1) {
-        flags.push(`Repo "${repo.name}" has only one commit – likely a template or tutorial`);
-      }
-      const messages = repo.commitMessages.join(" ").toLowerCase();
-      if (messages.includes("tutorial") || messages.includes("starter") || messages.includes("boilerplate")) {
-        flags.push(`Repo "${repo.name}" commit messages suggest tutorial content`);
-      }
-    });
-  }
-
-  return { flags, skillEvidence };
-}
-
-// ==========================================
-// 5. LEARNING VELOCITY CALCULATION
-// ==========================================
-function calculateLearningVelocity(github: any): "High" | "Average" | "Low" {
-  if (!github || !github.repos || github.repos.length < 2) return "Average";
-
-  const repos = github.repos.sort(
-    (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
-
-  // Simple metric: increase in language diversity over time
-  let languageProgression = 0;
-  let previousLanguages = new Set<string>();
-  for (const repo of repos) {
-    const currentLanguages = new Set(repo.languages.map((l: any) => l.name));
-    // Count new languages not seen before
-    const newLanguages = [...currentLanguages].filter(l => !previousLanguages.has(l)).length;
-    languageProgression += newLanguages;
-    previousLanguages = new Set([...previousLanguages, ...currentLanguages]);
-  }
-
-  // Another metric: commit frequency over time
-  const commitActivity = repos.flatMap((r: any) => r.commitMessages.length);
-  const commitTrend = commitActivity.length > 1 ? commitActivity[commitActivity.length - 1] / commitActivity[0] : 1;
-
-  // Combine
-  const score = languageProgression * 0.5 + commitTrend * 50;
-  if (score > 30) return "High";
-  if (score > 10) return "Average";
-  return "Low";
-}
-
-// ==========================================
-// 6. ENHANCED AI PROMPT
-// ==========================================
-const SYSTEM_PROMPT = `
-You are a forensic technical investigator. Your task is to analyze a candidate's resume and GitHub data against a job description.
-
-You must produce a JSON with the following fields:
-- executive_summary: 3-sentence summary of candidate's fit and red flags.
-- skill_verification: an object where each required skill (from job) is evaluated: {skill: string, found_in_resume: boolean, found_in_github: boolean, evidence: string}
-- experience_validation: evaluate if claimed experience is backed by GitHub activity. Provide a score 0-100.
-- learning_velocity: "High" | "Average" | "Low" (based on provided pre-calculated value).
-- code_quality_indicators: { hasTests: boolean, commitMessageQuality: "Good" | "Average" | "Poor", repoOrganization: "Good" | "Average" | "Poor" }
-- collaboration_score: 0-100 based on issues, PRs, forks, stars.
-- authenticity_score: 0-100 (penalize for plagiarism flags and inconsistencies).
-- overall_match_score: 0-100.
-- skill_graph: { frontend: 0-100, backend: 0-100, database: 0-100, devops: 0-100, architecture: 0-100 }
-- is_hidden_gem: boolean (true if proof of work > 85 and academics < 50).
-- audit_trail: array of key observations.
-
-Chain of thought instructions:
-1. First, list each resume claim (skills, experiences, projects).
-2. Then, search GitHub for evidence supporting each claim.
-3. Note any claims without evidence.
-4. Then, evaluate GitHub independently: what skills are actually demonstrated through code?
-5. Compare the two profiles and synthesize.
-`;
-
-// ==========================================
-// 7. MAIN HANDLER
-// ==========================================
-export async function POST(req: Request) {
-  const startTime = Date.now();
-
-  try {
-    const { applicationId } = await req.json();
-    console.log(`\n===========================================`);
-    console.log(`[PROCESS START] Analyzing Application: ${applicationId}`);
-
-    // Fetch application and job data
-    const appRef = doc(db, "applications", applicationId);
-    const appSnap = await getDoc(appRef);
-    if (!appSnap.exists()) throw new Error("Application not found");
-    const appData = appSnap.data() as any;
-
-    const jobRef = doc(db, "jobs", appData.jobId);
-    const jobSnap = await getDoc(jobRef);
-    if (!jobSnap.exists()) throw new Error("Job not found");
-    const jobData = jobSnap.data() as any;
-
-    console.log(`[DB] Job: ${jobData.title} | Required: ${jobData.requiredSkills.join(", ")}`);
-
-    // Fetch data with caching
-    const [githubData, resumeData] = await Promise.all([
-      getCachedOrFetch(`github_${appData.githubUsername}`, () =>
-        fetchDeepGitHubData(appData.githubUsername)
-      ),
-      getCachedOrFetch(`resume_${appData.resumeUrl}`, () =>
-        extractStructuredResume(appData.resumeUrl)
-      ),
-    ]);
-
-    // Cross-validation
-    const validation = crossValidate(resumeData, githubData, jobData.requiredSkills);
-
-    // Learning velocity
-    const learningVelocity = calculateLearningVelocity(githubData);
-
-    // Prepare data for AI
-    const promptData = `
-      --- JOB REQUIREMENTS ---
-      SKILLS: ${jobData.requiredSkills.join(", ")}
-      LEVEL: ${jobData.experienceLevel}
-
-      --- RESUME STRUCTURED DATA ---
-      ${JSON.stringify(resumeData.structured, null, 2)}
-
-      --- GITHUB DEEP DATA ---
-      ${JSON.stringify(githubData, null, 2)}
-
-      --- CROSS-VALIDATION FLAGS ---
-      ${JSON.stringify(validation.flags, null, 2)}
-
-      --- PRE-COMPUTED LEARNING VELOCITY ---
-      ${learningVelocity}
-    `;
-
-    console.log(`[OPENAI] Sending enhanced payload...`);
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: promptData },
-      ],
-      temperature: 0.1,
-    });
-
-    const analysisResults = JSON.parse(completion.choices[0].message.content || "{}");
-
-    // Merge our pre-computed values
-    analysisResults.learningVelocity = learningVelocity;
-    analysisResults.validationFlags = validation.flags;
-    analysisResults.skillEvidence = validation.skillEvidence;
-
-    console.log(`[ANALYSIS] Match Score: ${analysisResults.overall_match_score}`);
-    console.log(`[ANALYSIS] Audit Trail:`, analysisResults.audit_trail);
-
-    // Save to Firestore
-    await updateDoc(appRef, {
-      status: "analyzed",
-      analysis: analysisResults,
-      enrichedData: {
-        github: githubData,
-        resume: resumeData.structured,
-        validation,
-      },
-      analyzedAt: new Date().toISOString(),
-    });
-
-    const endTime = Date.now();
-    console.log(`[PROCESS END] Time: ${(endTime - startTime) / 1000}s`);
-    console.log(`===========================================\n`);
-
-    return NextResponse.json({ success: true });
-
-  } catch (error: any) {
-    console.error(`[FATAL]`, error);
-    return NextResponse.json(
-      { error: "Analysis failed", details: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// Keep existing extractResumeText function (unchanged)
 async function extractResumeText(pdfUrl: string) {
   console.log(`[PDF] Processing URL: ${pdfUrl}`);
   
   let downloadUrl = pdfUrl;
 
-  // 1. Auto-Convert Google Drive 'view' links to 'download' links
   if (downloadUrl.includes("drive.google.com/file/d/")) {
     const match = downloadUrl.match(/\/d\/(.*?)\//);
     if (match && match[1]) {
       downloadUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
-      console.log(`[PDF] Converted Google Drive link to direct download.`);
     }
   }
   
-  // 2. Auto-Convert Dropbox links
   if (downloadUrl.includes("dropbox.com") && downloadUrl.includes("dl=0")) {
     downloadUrl = downloadUrl.replace("dl=0", "dl=1");
-    console.log(`[PDF] Converted Dropbox link to direct download.`);
   }
 
   try {
-    const response = await fetch(downloadUrl);
-    const contentType = response.headers.get("content-type") || "";
+    const response = await fetch(downloadUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+      }
+    });
 
-    // 3. Safety Check: Did we still get a webpage?
+    if (!response.ok) {
+      if (response.status === 403) {
+        console.error(`[PDF] 403 ERROR: Google Drive blocked access.`);
+        return "ERROR: Access Denied. Ensure the Google Drive link is set to 'Anyone with the link can view'.";
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
-      console.warn(`[PDF] WARNING: URL returned a webpage (HTML), not a document. Link might be private or a portfolio website.`);
-      return "Candidate provided a website or restricted link instead of a readable PDF. Evaluate based on GitHub only.";
+      return "Candidate provided a private link or login page. Evaluate based on GitHub only.";
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    
-    console.log(`[PDF] Extracting text via unpdf...`);
     const { extractText, getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
     const { text } = await extractText(pdf, { mergePages: true });
     
-    if (!text || text.trim().length === 0) {
-      console.warn(`[PDF] Extraction yielded empty text.`);
-      return "No readable text found in PDF.";
-    }
+    if (!text || text.trim().length === 0) return "No readable text found in PDF.";
 
-    const cleanedText = text.replace(/\s+/g, ' ').substring(0, 5000);
-    console.log(`[PDF] Success. Extracted ${cleanedText.length} characters.`);
-    return cleanedText;
-  } catch (error) {
-    console.error(`[PDF] Extraction FATAL error:`, error);
-    return "Could not extract text due to document encryption, formatting, or broken link.";
+    return text.replace(/\s+/g, ' ').substring(0, 5000);
+  } catch (error: any) {
+    return `Could not extract text: ${error.message}`;
+  }
+}
+
+// ==========================================
+// 5. ENHANCED SEMANTIC AI PROMPT
+// ==========================================
+const SYSTEM_PROMPT = `
+You are an elite forensic technical auditor and technical recruiter. Your goal is to prove or disprove a candidate's skill claims by cross-referencing their Resume against their GitHub Proof of Work.
+
+CRITICAL RULE: SEMANTIC SKILL INFERENCE (DO NOT USE EXACT KEYWORD MATCHING)
+You must bridge the gap between "Required Skills" and the candidate's actual technologies.
+- If Job Requires "Mobile Development": Candidate having "Flutter", "Dart", "React Native", "Swift", or "Kotlin" means they POSSESS the skill.
+- If Job Requires "REST API": Candidate having "Express", "Node.js", "Django", "FastAPI", "Spring Boot", OR network packages like "axios", "dio", "http", OR commit messages about "endpoints/apis" means they POSSESS the skill.
+- If Job Requires "Frontend": "React", "Next.js", "Vue", "HTML/CSS", "Tailwind" counts as full evidence.
+
+INSTRUCTIONS:
+1. Cross-reference the required skills with the resume and GitHub data.
+2. If a skill is semantically proven (even if not explicitly named), mark it as VERIFIED.
+3. If a skill is in GitHub but not the resume, it's a "Hidden Strength."
+4. If a skill is in the resume but not GitHub, note the discrepancy.
+
+CRITICAL: YOU MUST RETURN ONLY A JSON OBJECT WITH THESE EXACT camelCase KEYS:
+{
+  "overallMatchScore": number (0-100),
+  "authenticityScore": number (0-100),
+  "weightedBreakdown": { "proofOfWork": number, "experience": number, "academics": number, "velocity": number },
+  "isHiddenGem": boolean,
+  "learningVelocity": "High" | "Average" | "Low",
+  "skillGraph": { "frontend": number, "backend": number, "database": number, "devops": number, "architecture": number },
+  "verifiedSkills": [array of string],
+  "skillVerification": [
+     { "skill": "REST API", "status": "Found", "evidence": "Used 'dio' and 'express' in 3 GitHub repositories." },
+     { "skill": "Mobile Development", "status": "Found", "evidence": "Built cross-platform apps using Flutter/Dart." }
+  ],
+  "audit_trail": [array of strings tracking your logic],
+  "aiSummary": "Brief 2 sentence summary."
+}
+`;
+
+export async function POST(req: Request) {
+  const startTime = Date.now();
+
+  try {
+    const { applicationId } = await req.json();
+    console.log(`\n>>> [AUDIT START] ${applicationId}`);
+
+    const appRef = doc(db, "applications", applicationId);
+    const appSnap = await getDoc(appRef);
+    if (!appSnap.exists()) throw new Error("App not found");
+    const appData = appSnap.data() as any;
+
+    const jobSnap = await getDoc(doc(db, "jobs", appData.jobId));
+    const jobData = jobSnap.data() as any;
+
+    // We changed the cache key to v3 to guarantee a fresh pull with our new safety limits
+    const [githubData, resumeData] = await Promise.all([
+      getCachedOrFetch(`github_v3_${appData.githubUsername}`, () => fetchDeepGitHubData(appData.githubUsername)),
+      getCachedOrFetch(`resume_${appData.resumeUrl}`, () => extractStructuredResume(appData.resumeUrl))
+    ]);
+
+    // ==========================================
+    // LOGGING CHECKPOINTS (To verify data fetched properly)
+    // ==========================================
+    console.log(`\n--- [LOG_CHECKPOINT: RESUME] ---`);
+    console.log(`Summary Found: ${!!resumeData?.structured?.summary}`);
+    console.log(`Skills Extracted:`, resumeData?.structured?.skills || "None");
+    console.log(`Experience Entries: ${resumeData?.structured?.workExperience?.length || 0}`);
+
+    console.log(`\n--- [LOG_CHECKPOINT: GITHUB] ---`);
+    console.log(`Repos Fetched: ${githubData?.repos?.length || 0}`);
+    console.log(`Top Languages:`, Object.keys(githubData?.languageBreakdown || {}));
+    
+    // PRE-PROCESSING: Create a rich, semantic summary for the AI
+    const githubSummary = {
+      languages: githubData?.languageBreakdown || {},
+      topRepos: githubData?.repos?.slice(0, 10).map((r: any) => ({
+        name: r.name,
+        desc: r.description,
+        tech: r.languages.map((l: any) => l.name),
+        topics: r.topics, // INCLUDES TOPICS NOW!
+        recentCommits: r.commitMessages.slice(0, 5) // Exposes commit context
+      }))
+    };
+
+    const promptData = `
+      JOB REQUIREMENTS: ${jobData.requiredSkills.join(", ")}
+      
+      CANDIDATE ACADEMICS/RESUME: 
+      ${JSON.stringify(resumeData?.structured || {})}
+      
+      GITHUB PROOF OF WORK: 
+      ${JSON.stringify(githubSummary)}
+    `;
+
+    console.log(`\n[AI_ENGINE] Prompting LLM for Semantic Match...`);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo-preview", 
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: promptData },
+      ],
+      temperature: 0.1, 
+    });
+
+    const aiResponse = JSON.parse(completion.choices[0].message.content || "{}");
+
+    // Map the response safely to ensure frontend compatibility
+    const analysisResults = {
+      overallMatchScore: aiResponse.overallMatchScore || aiResponse.overall_match_score || 0,
+      authenticityScore: aiResponse.authenticityScore || aiResponse.authenticity_score || 0,
+      weightedBreakdown: aiResponse.weightedBreakdown || aiResponse.weighted_breakdown || { proofOfWork: 0, experience: 0, academics: 0, velocity: 0 },
+      isHiddenGem: aiResponse.isHiddenGem ?? aiResponse.is_hidden_gem ?? false,
+      learningVelocity: aiResponse.learningVelocity || aiResponse.learning_velocity || "Average",
+      skillGraph: aiResponse.skillGraph || aiResponse.skill_graph || { frontend: 0, backend: 0, database: 0, devops: 0, architecture: 0 },
+      verifiedSkills: aiResponse.verifiedSkills || aiResponse.verified_skills || [],
+      skillVerification: aiResponse.skillVerification || aiResponse.skill_verification || [],
+      audit_trail: aiResponse.audit_trail || aiResponse.audit_trail || [],
+      aiSummary: aiResponse.aiSummary || aiResponse.ai_summary || "Analysis failed to generate summary."
+    };
+
+    console.log(`[RESULT] Match: ${analysisResults.overallMatchScore}% | Verified Skills: ${analysisResults.verifiedSkills.length}`);
+
+    await updateDoc(appRef, {
+      status: "analyzed",
+      analysis: analysisResults, 
+      enrichedData: {
+        github: githubData || null,
+        resume: resumeData?.structured || null,
+      },
+      analyzedAt: new Date().toISOString(),
+    });
+
+    return NextResponse.json({ success: true, analysisResults });
+
+  } catch (error: any) {
+    console.error(`[FATAL]`, error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

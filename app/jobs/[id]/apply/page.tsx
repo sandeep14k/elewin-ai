@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect, use } from "react"
-import { useAuth } from "@/context/authcontext"
 import { getJobById, submitApplication } from "@/lib/applications"
+import { storage } from "@/lib/firebase"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import { Job } from "@/types/platform"
 import { useRouter } from "next/navigation"
 import { 
-  Briefcase, Github, Linkedin, FileText, Loader2, 
-  Sparkles, CheckCircle2, Copy, ExternalLink, Share2 
+  Github, FileText, Loader2, Sparkles, CheckCircle2, 
+  Copy, ExternalLink, ShieldAlert, Upload, Link as LinkIcon 
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -15,7 +16,6 @@ import Navbar from "@/components/navbar"
 
 export default function ApplicationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -23,13 +23,14 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [isLoadingJob, setIsLoadingJob] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittedId, setSubmittedId] = useState<string | null>(null)
-
+  
+  const [resumeMode, setResumeMode] = useState<"upload" | "link">("upload")
+  const [file, setFile] = useState<File | null>(null)
   const [formData, setFormData] = useState({
     candidateName: "",
     candidateEmail: "",
     resumeUrl: "",
-    githubUsername: "",
-    linkedinUrl: ""
+    githubUsername: ""
   })
 
   useEffect(() => {
@@ -37,155 +38,160 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       const jobData = await getJobById(id)
       setJob(jobData)
       setIsLoadingJob(false)
-      if (user) {
-        setFormData(prev => ({
-          ...prev,
-          candidateName: user.displayName || "",
-          candidateEmail: user.email || ""
-        }))
-      }
     }
     loadJob()
-  }, [id, user])
+  }, [id])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!job) return
-
     setIsSubmitting(true)
+
     try {
-      // 1. Submit to Firestore and get the generated ID
+      let finalResumeUrl = formData.resumeUrl
+
+      // 1. HANDLE FILE UPLOAD
+      if (resumeMode === "upload" && file) {
+        const fileRef = ref(storage, `resumes/${Date.now()}_${file.name}`)
+        const uploadResult = await uploadBytes(fileRef, file)
+        finalResumeUrl = await getDownloadURL(uploadResult.ref)
+      } else if (resumeMode === "link" && !finalResumeUrl) {
+        throw new Error("Please provide a resume link.")
+      }
+
+      // 2. SUBMIT TO FIRESTORE
       const applicationId = await submitApplication({
-        jobId: job.id!,
-        jobTitle: job.title,
-        candidateId: user?.uid || "anonymous_guest",
+        jobId: job!.id!,
+        jobTitle: job!.title,
+        candidateId: "guest_" + Date.now(),
         candidateName: formData.candidateName,
         candidateEmail: formData.candidateEmail,
-        resumeUrl: formData.resumeUrl,
-        githubUsername: formData.githubUsername.replace("@", ""),
-        linkedinUrl: formData.linkedinUrl
+        resumeUrl: finalResumeUrl,
+        githubUsername: formData.githubUsername.replace("@", "").trim(),
       })
 
-      // 2. Trigger AI Analysis
-      fetch("/api/analyze-application", {
+      // 3. TRIGGER AI ANALYSIS & ACCESS CHECK
+      const res = await fetch("/api/analyze-application", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ applicationId })
-      }).catch(err => console.error("AI Trigger failed:", err))
+      })
+      
+      const result = await res.json()
+      
+      // If AI returns error because it can't read the link
+      if (result.error) {
+        toast({ 
+          title: "Forensic Reject", 
+          description: "Resume link is private or unreadable. Please check permissions.", 
+          variant: "destructive" 
+        })
+        setIsSubmitting(false)
+        return
+      }
 
       setSubmittedId(applicationId)
-      toast({ title: "Application Sent!", description: "Your unique tracking link is ready." })
-    } catch (error) {
-      toast({ title: "Error", description: "Could not submit application.", variant: "destructive" })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const copyLink = () => {
-    const link = `${window.location.origin}/status/${submittedId}`
-    navigator.clipboard.writeText(link)
-    toast({ title: "Link Copied!", description: "You can now save this link to track your status." })
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+  const trackingLink = `${baseUrl}/status/${submittedId}`
 
-  if (isLoadingJob) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
+  if (isLoadingJob) return <div className="min-h-screen flex items-center justify-center bg-[#050A15]"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
 
-  // --- SUCCESS STATE: THE MAGIC LINK CARD ---
   if (submittedId) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <Navbar />
-        <div className="flex-grow flex items-center justify-center p-4">
-          <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-xl w-full text-center border border-slate-100 animate-in zoom-in-95 duration-500">
-            <div className="w-20 h-20 bg-green-50 rounded-3xl flex items-center justify-center mx-auto mb-8 rotate-3">
-              <CheckCircle2 className="w-10 h-10 text-green-500" />
-            </div>
-            <h2 className="text-3xl font-black text-slate-900 mb-3">You're in the Pipeline!</h2>
-            <p className="text-slate-500 mb-10 leading-relaxed">
-              Our AI is now scanning your GitHub to generate your <b>Skill Graph</b>. Save this private link to track your verification and hiring status.
-            </p>
-
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-3 mb-8 group">
-               <div className="flex-grow text-left overflow-hidden">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase ml-1">Your Tracking Link</p>
-                  <p className="text-sm font-mono text-slate-600 truncate">elewin.com/status/{submittedId}</p>
-               </div>
-               <Button onClick={copyLink} variant="ghost" size="icon" className="shrink-0 hover:bg-white hover:text-orange-500 transition-all">
-                  <Copy className="w-4 h-4" />
-               </Button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-               <Button onClick={() => router.push(`/status/${submittedId}`)} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-2xl font-bold shadow-lg shadow-orange-500/20">
-                  View My Skill Graph <ExternalLink className="w-4 h-4 ml-2" />
-               </Button>
-               <Button onClick={() => router.push('/')} variant="outline" className="flex-1 h-14 rounded-2xl font-bold border-slate-200">
-                  Return Home
-               </Button>
-            </div>
+      <div className="min-h-screen bg-[#050A15] flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-lg w-full text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="w-8 h-8 text-green-600" />
           </div>
+          <h2 className="text-3xl font-black text-slate-900 mb-2">Verified.</h2>
+          <p className="text-slate-500 mb-8 text-sm">Your profile is now being audited against live GitHub data.</p>
+          
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-3 mb-8">
+            <div className="flex-grow text-left truncate">
+               <p className="text-[10px] font-black text-slate-400 uppercase">Magic Status Link</p>
+               <p className="text-xs font-mono text-slate-600 truncate">{trackingLink}</p>
+            </div>
+            <Button onClick={() => { navigator.clipboard.writeText(trackingLink); toast({ title: "Copied!" }) }} variant="ghost" size="icon">
+              <Copy className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <Button onClick={() => router.push(`/status/${submittedId}`)} className="w-full bg-orange-500 h-14 rounded-2xl font-bold text-white">
+            Enter Dashboard <ExternalLink className="w-4 h-4 ml-2" />
+          </Button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-20">
+    <div className="min-h-screen bg-slate-50">
       <Navbar />
       <main className="max-w-3xl mx-auto px-4 py-12">
-        {/* Form UI remains the same as before */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 mb-8">
-            <div className="flex items-start justify-between mb-6">
-                <div>
-                    <h1 className="text-3xl font-black text-slate-900">{job?.title}</h1>
-                    <p className="text-lg text-slate-500 font-medium">{job?.companyName}</p>
-                </div>
+        
+        <div className="bg-[#050A15] text-white p-8 rounded-[40px] mb-8 relative overflow-hidden">
+            <div className="relative z-10">
+                <h1 className="text-3xl font-black mb-2">{job?.title}</h1>
+                <p className="text-slate-400 text-sm">{job?.companyName} • Forensic Recruitment Active</p>
             </div>
-            <p className="text-slate-600 text-sm leading-relaxed mb-6">{job?.description}</p>
-            <div className="flex flex-wrap gap-2">
-                {job?.requiredSkills.map(s => (
-                    <span key={s} className="bg-slate-50 text-slate-500 text-[10px] font-bold px-2 py-1 rounded-md border border-slate-100">#{s}</span>
-                ))}
-            </div>
+            <Sparkles className="absolute right-10 top-10 w-20 h-20 text-orange-500/20" />
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 space-y-6">
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            Submit Technical Profile
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Full Name</label>
-              <input required type="text" value={formData.candidateName} onChange={e => setFormData({...formData, candidateName: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Email</label>
-              <input required type="email" value={formData.candidateEmail} onChange={e => setFormData({...formData, candidateEmail: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
-            </div>
+        <form onSubmit={handleSubmit} className="bg-white p-10 rounded-[40px] shadow-xl border border-slate-200 space-y-8">
+          
+          <div className="grid grid-cols-2 gap-4">
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Full Name</label>
+                  <input required value={formData.candidateName} onChange={e => setFormData({...formData, candidateName: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Email</label>
+                  <input required type="email" value={formData.candidateEmail} onChange={e => setFormData({...formData, candidateEmail: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
+               </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase ml-1 flex justify-between">
-              <span>GitHub Username</span>
-              <span className="text-orange-500 flex items-center gap-1"><Sparkles className="w-3 h-3" /> AI Verification Required</span>
-            </label>
+            <label className="text-[10px] font-black text-slate-400 uppercase ml-2">Public GitHub Username</label>
             <div className="relative">
-                <Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input required type="text" placeholder="e.g. sandeep14k" value={formData.githubUsername} onChange={e => setFormData({...formData, githubUsername: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-mono" />
+              <Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input required placeholder="sandeep14k" value={formData.githubUsername} onChange={e => setFormData({...formData, githubUsername: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-mono" />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase ml-1">Resume Link (Google Drive / Dropbox)</label>
-            <div className="relative">
-                <FileText className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input required type="url" placeholder="Paste direct link here..." value={formData.resumeUrl} onChange={e => setFormData({...formData, resumeUrl: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
+          {/* RESUME SELECTION */}
+          <div className="space-y-4">
+            <div className="flex gap-2">
+                <Button type="button" onClick={() => setResumeMode("upload")} variant={resumeMode === "upload" ? "default" : "outline"} className="rounded-xl text-[10px] font-black uppercase"><Upload className="w-3 h-3 mr-2" /> Upload PDF</Button>
+                <Button type="button" onClick={() => setResumeMode("link")} variant={resumeMode === "link" ? "default" : "outline"} className="rounded-xl text-[10px] font-black uppercase"><LinkIcon className="w-3 h-3 mr-2" /> Paste Link</Button>
             </div>
+
+            {resumeMode === "upload" ? (
+                <div className="border-2 border-dashed border-slate-200 p-10 rounded-3xl text-center hover:border-orange-500 transition-all">
+                    <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" id="resume-file" />
+                    <label htmlFor="resume-file" className="cursor-pointer">
+                        <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                        <p className="text-sm font-bold text-slate-600">{file ? file.name : "Click to upload Resume (PDF/DOC)"}</p>
+                    </label>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <input required placeholder="https://drive.google.com/..." value={formData.resumeUrl} onChange={e => setFormData({...formData, resumeUrl: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all" />
+                    <div className="flex items-center gap-2 bg-amber-50 p-3 rounded-xl border border-amber-100">
+                        <ShieldAlert className="w-4 h-4 text-amber-600" />
+                        <p className="text-[10px] font-bold text-amber-700 uppercase">Warning: Link must be PUBLIC (Open to view for anyone)</p>
+                    </div>
+                </div>
+            )}
           </div>
 
-          <Button type="submit" disabled={isSubmitting} className="w-full bg-orange-500 hover:bg-orange-600 text-white h-16 rounded-2xl font-bold text-lg shadow-lg shadow-orange-500/20 transition-all">
-            {isSubmitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Verifying Profile...</> : "Apply with Proof of Work"}
+          <Button type="submit" disabled={isSubmitting} className="w-full bg-[#050A15] hover:bg-black text-white h-16 rounded-2xl font-black text-lg shadow-2xl transition-all">
+            {isSubmitting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Verifying Accessibility...</> : "Submit Forensic Application"}
           </Button>
         </form>
       </main>
