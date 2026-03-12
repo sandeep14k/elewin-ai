@@ -1,222 +1,201 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
+import { db } from "@/lib/firebase"
+import { collection, query, where, orderBy, getDocs } from "firebase/firestore"
+import { useAuth } from "@/context/authcontext"
+import { Job } from "@/types/platform"
 import { 
-  Search, Code2, Github, Globe, MapPin, 
-  CheckCircle2, Filter, Loader2, Sparkles, X
+  Briefcase, ShieldCheck, ArrowRight, Code2, 
+  Loader2, Sparkles, Building, Globe, Zap, LayoutDashboard 
 } from "lucide-react"
-import { getCandidates, CandidateFilters } from "@/lib/candidates"
-import { CandidateProfile } from "@/types/candidate"
+import { Button } from "@/components/ui/button"
+import Navbar from "@/components/navbar"
 
-export default function RecruiterDashboard() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isSearching, setIsSearching] = useState(false)
-  const [candidates, setCandidates] = useState<CandidateProfile[]>([])
-  const [activeFilters, setActiveFilters] = useState<CandidateFilters | null>(null)
-  const [error, setError] = useState<string | null>(null)
+export default function PlatformHome() {
+  const { user, loading: authLoading } = useAuth()
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [isLoadingJobs, setIsLoadingJobs] = useState(true)
 
-  // Load all actively looking candidates on initial render
   useEffect(() => {
-    loadCandidates({})
+    const fetchJobs = async () => {
+      try {
+        const q = query(collection(db, "jobs"), where("status", "==", "open"), orderBy("createdAt", "desc"))
+        const snapshot = await getDocs(q)
+        const list: Job[] = []
+        snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() } as Job))
+        setJobs(list)
+      } catch (e) { 
+        console.error(e) 
+      } finally { 
+        setIsLoadingJobs(false) 
+      }
+    }
+    fetchJobs()
   }, [])
 
-  const loadCandidates = async (filters: CandidateFilters) => {
-    try {
-      // In a completely fresh project, your Firestore might be empty.
-      // This calls the real DB function we wrote in lib/candidates.ts
-      const results = await getCandidates(filters)
-      setCandidates(results)
-    } catch (err: any) {
-        console.error(err)
-        setError("Could not load candidates. Ensure your Firebase database has user_profiles.")
-    }
-  }
-
-  const handleAISearch = async () => {
-    if (!searchQuery.trim()) {
-        setActiveFilters(null)
-        loadCandidates({}) // Reset to all
-        return
-    }
-
-    setIsSearching(true)
-    setError(null)
-
-    try {
-      // 1. Send natural language to our AI API
-      const res = await fetch("/api/ai-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: searchQuery })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) throw new Error(data.error)
-
-      // 2. The AI returns perfectly structured database filters
-      const filters: CandidateFilters = data.filters
-      setActiveFilters(filters)
-
-      // 3. Query the database with these exact filters
-      await loadCandidates(filters)
-
-    } catch (err: any) {
-      setError(err.message || "Search failed. Please try again.")
-    } finally {
-      setIsSearching(false)
-    }
-  }
-
-  const clearSearch = () => {
-      setSearchQuery("")
-      setActiveFilters(null)
-      loadCandidates({})
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <Navbar />
       
-      <header className="bg-[#050A15] text-white py-4 px-6 md:px-10 flex justify-between items-center border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-orange-500 rounded flex items-center justify-center font-bold text-white">E</div>
-          <span className="text-xl font-bold tracking-tight">EleWin <span className="text-orange-500">Recruit</span></span>
-        </div>
-        <div className="flex gap-4">
-            <button className="text-sm text-slate-300 hover:text-white transition-colors">Talent Pool</button>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-800">Discover Hidden Talent</h1>
-                <p className="text-slate-500 text-sm mt-1">Sourcing candidates based on verified Proof of Work, not just resumes.</p>
+      {/* DYNAMIC HERO SECTION */}
+      <section className="bg-[#050A15] pt-24 pb-32 px-4 relative overflow-hidden">
+        <div className="max-w-6xl mx-auto text-center relative z-10">
+          
+          {authLoading ? (
+            <div className="py-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-orange-500" /></div>
+          ) : user ? (
+            // LOGGED IN COMPANY VIEW
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full mb-8">
+                <Building className="w-4 h-4 text-green-500" />
+                <span className="text-green-200 text-xs font-bold uppercase tracking-widest">Company Portal</span>
+              </div>
+              <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
+                Welcome back, <br/><span className="text-orange-500">{user.displayName || "Recruiter"}</span>.
+              </h1>
+              <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto mb-12">
+                Your AI-verified talent pipelines are ready. Manage your open roles and review shortlisted candidates based on actual Proof of Work.
+              </p>
+              <div className="flex flex-col sm:flex-row justify-center gap-4">
+                <Link href="/employer/dashboard">
+                  <Button className="bg-orange-500 hover:bg-orange-600 text-white h-14 px-10 rounded-2xl font-bold text-lg shadow-lg shadow-orange-500/20">
+                    <LayoutDashboard className="w-5 h-5 mr-2" /> Go to Dashboard
+                  </Button>
+                </Link>
+                <Link href="/employer/post-job">
+                  <Button variant="outline" className="text-white border-white/20 hover:bg-white/5 h-14 px-10 rounded-2xl font-bold text-lg">
+                    Post a New Job
+                  </Button>
+                </Link>
+              </div>
             </div>
-            <button className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2">
-                <Filter className="w-4 h-4" /> Manual Filters
-            </button>
-        </div>
-
-        {/* AI Search Bar */}
-        <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex items-center mb-4 focus-within:ring-2 focus-within:ring-orange-500 transition-all">
-            <Search className="w-5 h-5 text-slate-400 ml-3" />
-            <input 
-                type="text"
-                placeholder="e.g., 'Find me a fast-learning React dev with clean code'"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAISearch()}
-                className="w-full px-4 py-3 outline-none text-slate-700 bg-transparent placeholder:text-slate-400"
-            />
-            {searchQuery && (
-                <button onClick={clearSearch} className="p-2 text-slate-400 hover:text-slate-600 mr-2">
-                    <X className="w-4 h-4" />
-                </button>
-            )}
-            <button 
-                onClick={handleAISearch}
-                disabled={isSearching}
-                className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2"
-            >
-                {isSearching ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</> : <><Sparkles className="w-4 h-4" /> AI Match</>}
-            </button>
-        </div>
-
-        {/* AI Interpretation (Transparency Layer) */}
-       {activeFilters && (
-            <div className="mb-8 flex flex-wrap items-center gap-2 animate-in fade-in">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-2">AI Filtered By:</span>
-                
-                {activeFilters.role && <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium">Role: {activeFilters.role}</span>}
-                
-                {/* Fixed the > symbol to &gt; */}
-                {activeFilters.minVelocity && <span className="px-3 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded-full text-xs font-medium">Fast Learner (Velocity &gt; {activeFilters.minVelocity})</span>}
-                
-                {/* Fixed the > symbol to &gt; */}
-                {activeFilters.minCodeQuality && <span className="px-3 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-medium">Clean Code (Quality &gt; {activeFilters.minCodeQuality})</span>}
-                
-                {activeFilters.requiredSkills?.map(skill => (
-                    <span key={skill} className="px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-xs font-medium">Skill: {skill}</span>
-                ))}
+          ) : (
+            // GUEST / CANDIDATE VIEW
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full mb-8">
+                <Sparkles className="w-4 h-4 text-orange-500" />
+                <span className="text-orange-200 text-xs font-bold uppercase tracking-widest">Next-Gen Recruitment</span>
+              </div>
+              <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
+                Hire via <span className="text-orange-500">Proof of Work.</span>
+              </h1>
+              <p className="text-slate-400 text-lg md:text-xl max-w-3xl mx-auto mb-12">
+                The first platform that verifies GitHub commits, detects fake projects, and weights candidates by actual code, experience, and academics.
+              </p>
+              <div className="flex flex-col sm:flex-row justify-center gap-4">
+                <Link href="/employer/post-job">
+                  <Button className="bg-orange-500 hover:bg-orange-600 text-white h-14 px-10 rounded-2xl font-bold text-lg shadow-lg shadow-orange-500/20">
+                    For Employers: Post a Job
+                  </Button>
+                </Link>
+                <Link href="/auth/signup">
+                  <Button variant="outline" className="text-white border-white/20 hover:bg-white/5 h-14 px-10 rounded-2xl font-bold text-lg">
+                    Create Company Account
+                  </Button>
+                </Link>
+              </div>
             </div>
-        )}
+          )}
 
-        {error && <div className="p-4 mb-8 bg-red-50 text-red-600 rounded-lg border border-red-200 text-sm">{error}</div>}
+        </div>
+      </section>
 
-        {/* Results Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {candidates.length === 0 && !isSearching && !error ? (
-                <div className="col-span-full py-12 text-center text-slate-500 bg-white rounded-2xl border border-dashed border-slate-300">
-                    No candidates match this exact criteria. Try broadening your search or ensure your database is populated.
-                </div>
-            ) : (
-                candidates.map((candidate) => (
-                    <div key={candidate.id} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all group">
-                        
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                                    {candidate.personalInfo?.fullName || "Anonymous Candidate"}
-                                    <CheckCircle2 className="w-4 h-4 text-blue-500" title="Verified Proof of Work" />
-                                </h3>
-                                <p className="text-sm text-slate-600 font-medium">{candidate.personalInfo?.currentRole}</p>
-                                <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                                    <MapPin className="w-3 h-3" /> {candidate.personalInfo?.location || "Remote"}
-                                </p>
-                            </div>
+      {/* Main Content: Job Feed */}
+      <main className="max-w-6xl mx-auto w-full px-4 -mt-16 pb-20 z-20">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* Left: Job List */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <Globe className="w-6 h-6 text-orange-500" /> Public Job Board
+                </h2>
+                <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">{jobs.length} Open Roles</span>
+              </div>
 
-                            <div className="flex gap-3 text-center">
-                                <div className="flex flex-col items-center">
-                                    <div className="w-12 h-12 rounded-full border-4 border-purple-400 flex items-center justify-center text-sm font-bold text-slate-800">
-                                        {candidate.aiTalentGraph?.codeQualityScore || 0}
-                                    </div>
-                                    <span className="text-[10px] uppercase font-bold text-slate-500 mt-1 tracking-wider">Quality</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <div className="w-12 h-12 rounded-full border-4 border-orange-400 flex items-center justify-center text-sm font-bold text-slate-800">
-                                        {candidate.aiTalentGraph?.learningVelocity || 0}
-                                    </div>
-                                    <span className="text-[10px] uppercase font-bold text-slate-500 mt-1 tracking-wider">Velocity</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mb-5">
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Verified Technical Graph</p>
-                            <div className="flex flex-wrap gap-2 mb-3">
-                                {candidate.skillGraph?.map(evidence => (
-                                    <span key={evidence.skillName} className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md text-xs font-medium border border-slate-200">
-                                        {evidence.skillName}
-                                    </span>
-                                ))}
-                            </div>
-                            
-                            <div className="flex gap-3">
-                                {candidate.metrics?.github && <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded"><Github className="w-3.5 h-3.5" /> GitHub</div>}
-                                {candidate.metrics?.leetcode && <div className="flex items-center gap-1.5 text-xs font-semibold text-orange-700 bg-orange-50 px-2 py-1 rounded"><Code2 className="w-3.5 h-3.5" /> LeetCode</div>}
-                                {candidate.metrics?.portfolio && <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded"><Globe className="w-3.5 h-3.5" /> Portfolio</div>}
-                            </div>
-                        </div>
-
-                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col sm:flex-row gap-4 items-center justify-between">
-                            <div className="flex-1">
-                                <p className="text-sm text-slate-700 italic leading-relaxed">
-                                    <span className="font-bold text-orange-600 not-italic mr-1">AI Insight:</span>
-                                    &quot;{candidate.aiTalentGraph?.aiSummary || "Strong technical foundation with verified project experience."}&quot;
-                                </p>
-                            </div>
-                            <button className="bg-white border border-slate-300 hover:border-slate-800 hover:bg-slate-50 text-slate-800 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap shadow-sm w-full sm:w-auto">
-                                View Profile
-                            </button>
-                        </div>
-
+              <div className="space-y-4">
+                {isLoadingJobs ? (
+                  <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-orange-500" /></div>
+                ) : jobs.length === 0 ? (
+                  <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <Briefcase className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                    <p className="text-slate-500 font-medium">No public roles available right now.</p>
+                  </div>
+                ) : jobs.map(job => (
+                  <div key={job.id} className="group p-6 rounded-2xl border border-slate-100 hover:border-orange-200 hover:bg-orange-50/30 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900 group-hover:text-orange-600 transition-colors">{job.title}</h3>
+                      <p className="text-slate-500 font-medium flex items-center gap-1.5 mt-1 text-sm">
+                        <Building className="w-4 h-4" /> {job.companyName}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {job.requiredSkills.map(s => (
+                          <span key={s} className="bg-white text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">#{s}</span>
+                        ))}
+                      </div>
                     </div>
-                ))
-            )}
-        </div>
+                    
+                    {/* DYNAMIC BUTTON LOGIC */}
+                    <div className="w-full md:w-auto">
+                      {!user ? (
+                        <Link href={`/jobs/${job.id}/apply`}>
+                          <Button className="w-full bg-slate-900 hover:bg-black text-white rounded-xl">
+                            Apply Now <ArrowRight className="w-4 h-4 ml-2" />
+                          </Button>
+                        </Link>
+                      ) : user.uid === job.companyId ? (
+                        <Link href={`/employer/jobs/${job.id}`}>
+                          <Button variant="outline" className="w-full border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl">
+                            View Pipeline <ArrowRight className="w-4 h-4 ml-2" />
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Button disabled variant="outline" className="w-full bg-slate-50 text-slate-400 border-slate-200 rounded-xl cursor-not-allowed">
+                          Employer Account
+                        </Button>
+                      )}
+                    </div>
 
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Info Card */}
+          <div className="space-y-6">
+             {!user && (
+               <div className="bg-orange-500 p-8 rounded-3xl text-white shadow-lg shadow-orange-500/20">
+                  <Zap className="w-10 h-10 mb-4" />
+                  <h3 className="text-2xl font-bold mb-2">Hiring?</h3>
+                  <p className="text-orange-100 mb-6 text-sm">Share a link, verify code, and shortlist in minutes. No more manual resume screening.</p>
+                  <Link href="/employer/post-job">
+                    <Button className="w-full bg-white text-orange-600 hover:bg-orange-50 font-bold py-6 rounded-xl">
+                      Post a Role Today
+                    </Button>
+                  </Link>
+               </div>
+             )}
+
+             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h4 className="font-bold text-slate-800 mb-4">Why EleWin Recruit?</h4>
+                <div className="space-y-4">
+                   <div className="flex gap-3">
+                      <ShieldCheck className="w-5 h-5 text-green-500 flex-shrink-0" />
+                      <p className="text-xs text-slate-500 italic"><span className="font-bold text-slate-700 not-italic">Plagiarism Detection:</span> We flag tutorial clones and forked repos.</p>
+                   </div>
+                   <div className="flex gap-3">
+                      <Code2 className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                      <p className="text-xs text-slate-500 italic"><span className="font-bold text-slate-700 not-italic">Skill Weighting:</span> 40% PoW, 30% Exp, 20% Academics.</p>
+                   </div>
+                </div>
+             </div>
+          </div>
+
+        </div>
       </main>
     </div>
   )

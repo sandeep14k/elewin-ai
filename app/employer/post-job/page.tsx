@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useAuth } from "@/context/authcontext"
 import { createJob } from "@/lib/jobs"
 import { useRouter } from "next/navigation"
@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/use-toast"
 import Navbar from "@/components/navbar" // Assuming you have your shared navbar
 
 export default function PostJobPage() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -24,6 +24,12 @@ export default function PostJobPage() {
     experienceLevel: "Mid" as "Junior" | "Mid" | "Senior" | "Lead",
     requiredSkills: [] as string[]
   })
+  useEffect(() => {
+  if (!loading && !user) {
+    toast({ title: "Login Required", description: "Please sign in to post a job." })
+    router.push("/auth/login")
+  }
+}, [user, loading])
 
   // Handle adding skills as tags
   const addSkill = (e: React.KeyboardEvent<HTMLInputElement>) => {

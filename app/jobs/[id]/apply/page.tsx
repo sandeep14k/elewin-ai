@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, use } from "react"
 import { useAuth } from "@/context/authcontext"
 import { getJobById, submitApplication } from "@/lib/applications"
 import { Job } from "@/types/platform"
@@ -10,7 +10,10 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import Navbar from "@/components/navbar"
 
-export default function ApplicationPage({ params }: { params: { id: string } }) {
+export default function ApplicationPage({ params }: { params: Promise<{ id: string }> }) {
+  // Unwrap the params promise for Next.js 15
+  const { id } = use(params)
+  
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
@@ -23,19 +26,17 @@ export default function ApplicationPage({ params }: { params: { id: string } }) 
   const [formData, setFormData] = useState({
     candidateName: "",
     candidateEmail: "",
-    resumeUrl: "", // For simplicity, accepting a Google Drive/Dropbox link for now
+    resumeUrl: "",
     githubUsername: "",
     linkedinUrl: ""
   })
 
-  // Fetch the job details when the page loads
   useEffect(() => {
     const loadJob = async () => {
-      const jobData = await getJobById(params.id)
+      const jobData = await getJobById(id)
       setJob(jobData)
       setIsLoadingJob(false)
       
-      // Auto-fill if user is logged in
       if (user) {
         setFormData(prev => ({
           ...prev,
@@ -45,7 +46,7 @@ export default function ApplicationPage({ params }: { params: { id: string } }) 
       }
     }
     loadJob()
-  }, [params.id, user])
+  }, [id, user])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -53,16 +54,23 @@ export default function ApplicationPage({ params }: { params: { id: string } }) 
 
     setIsSubmitting(true)
     try {
-      await submitApplication({
+      const applicationId = await submitApplication({
         jobId: job.id!,
         jobTitle: job.title,
-        candidateId: user?.uid || "anonymous", // Fallback if applying as guest
+        candidateId: user?.uid || "anonymous_guest",
         candidateName: formData.candidateName,
         candidateEmail: formData.candidateEmail,
         resumeUrl: formData.resumeUrl,
-        githubUsername: formData.githubUsername.replace("@", ""), // Clean input
+        githubUsername: formData.githubUsername.replace("@", ""),
         linkedinUrl: formData.linkedinUrl
       })
+
+      // Trigger AI Analysis in the background
+      fetch("/api/analyze-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId })
+      }).catch(err => console.error("AI Trigger failed:", err))
 
       setIsSuccess(true)
       toast({ title: "Application Sent!", description: "Your profile is being analyzed." })
@@ -109,8 +117,6 @@ export default function ApplicationPage({ params }: { params: { id: string } }) 
       <Navbar />
       
       <main className="max-w-3xl mx-auto px-4 py-12">
-        
-        {/* Job Header */}
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 mb-8">
             <div className="flex items-start justify-between mb-4">
                 <div>
@@ -138,7 +144,6 @@ export default function ApplicationPage({ params }: { params: { id: string } }) 
             </div>
         </div>
 
-        {/* Application Form */}
         <form onSubmit={handleSubmit} className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-2">
              Submit Your Profile
