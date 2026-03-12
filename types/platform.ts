@@ -22,6 +22,7 @@ export interface Application {
   linkedinUrl?: string;
   status: "pending" | "analyzed" | "shortlisted" | "rejected";
   createdAt?: any;
+  // THE DEEP ANALYSIS OBJECT
   analysis?: {
     overallMatchScore: number;
     authenticityScore: number;
@@ -29,9 +30,9 @@ export interface Application {
       proofOfWork: number;
       experience: number;
       academics: number;
+      velocity: number;
     };
-    // --- THE NEW METRICS ---
-    isHiddenGem: boolean; 
+    isHiddenGem: boolean;
     learningVelocity: "High" | "Average" | "Low";
     skillGraph: {
       frontend: number;
@@ -40,10 +41,22 @@ export interface Application {
       devops: number;
       architecture: number;
     };
-    // -----------------------
     verifiedSkills: string[];
-    plagiarismFlags: string[];
+    validationFlags: string[]; // Fraud/Discrepancy alerts
     aiSummary: string;
     audit_trail: string[];
+    executive_summary?: string;
+    code_quality_indicators?: {
+      hasTests: boolean;
+      commitMessageQuality: string;
+      repoOrganization: string;
+    };
+    collaboration_score?: number;
+  };
+  // RAW DATA FOR THE DASHBOARD TO RENDER
+  enrichedData?: {
+    github: any;
+    resume: any;
+    validation: any;
   };
 }
