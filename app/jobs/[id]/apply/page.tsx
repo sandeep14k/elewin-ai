@@ -1,4 +1,3 @@
-// app/application/[id]/page.tsx
 "use client"
 
 import { useState, useEffect, use } from "react"
@@ -89,7 +88,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     loadJobAndUser()
   }, [id, user])
 
-  // --- UPDATED: Handle Direct File Upload OR URL Paste ---
+  // --- UPDATED: Merge Job-Specific Parse with Passport Data ---
   const handleLiveParse = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!job) return
@@ -100,7 +99,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
     setIsParsing(true)
     try {
-      // Use FormData to send the file blob to the Next.js API
       const uploadData = new FormData();
       if (resumeFile) uploadData.append("file", resumeFile);
       if (formData.resumeUrl) uploadData.append("resumeUrl", formData.resumeUrl);
@@ -112,15 +110,35 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       const data = await response.json()
       
       if (data.structured) {
-        setParsedBlocks(data.structured)
+        let finalBlocks = data.structured;
+
+        // If Passport exists, intelligently merge the arrays to prevent duplicates
+        if (passportData) {
+          // Track existing items to prevent duplicates from the new parse
+          const existingExp = new Set((passportData.workExperience || []).map((e: any) => `${e.title}-${e.company}`.toLowerCase()));
+          const newExp = (data.structured.workExperience || []).filter((e: any) => !existingExp.has(`${e.title}-${e.company}`.toLowerCase()));
+
+          const existingProj = new Set((passportData.projects || []).map((p: any) => (p.name || "").toLowerCase()));
+          const newProj = (data.structured.projects || []).filter((p: any) => !existingProj.has((p.name || "").toLowerCase()));
+
+          finalBlocks = {
+            ...data.structured,
+            // Prioritize verified passport data, append new unrecognized parsed data
+            workExperience: [...(passportData.workExperience || []), ...newExp],
+            projects: [...(passportData.projects || []), ...newProj],
+            // Academics must come from the freshly parsed resume or fallback to passport
+            education: data.structured.education?.length > 0 ? data.structured.education : (passportData.education || [])
+          };
+          toast({ title: "Data Merged", description: "Verified Passport records appended to job-specific resume." });
+        }
+
+        setParsedBlocks(finalBlocks)
         setStep(2)
       } else { throw new Error("Parse failed") }
     } catch (error) {
       toast({ title: "Extraction Failed", description: "PDF could not be analyzed.", variant: "destructive" })
     } finally { setIsParsing(false) }
   }
-
-  const handleUsePassport = () => { setParsedBlocks(passportData); setStep(2); }
 
   const removeProject = (index: number) => {
     const updated = [...parsedBlocks.projects]
@@ -140,7 +158,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     setParsedBlocks({ ...parsedBlocks, projects: updatedProjects })
   }
 
-  // --- UPDATED: Explicit Error Messaging for Invalid Work Email ---
   const handleRequestOTP = async (index: number, companyName: string) => {
     if (!corpEmail) return toast({ title: "Work Email required", variant: "destructive" });
     setIsProcessingOtp(true);
@@ -155,7 +172,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setOtpStep("verify");
         toast({ title: "Company Identity Validated", description: "OTP sent to verified work domain." });
       } else {
-        // Explicit UI rejection notice
         toast({ 
           title: "Invalid Company Email", 
           description: data.error || `The email you entered does not appear to be an official work email for ${companyName}.`, 
@@ -183,7 +199,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setActiveOtpIndex(null); setCorpEmail(""); setOtpCode(""); setOtpStep("request");
         toast({ title: "Success", description: "Experience verified via corporate link." });
       } else {
-        // Show error message from server
         toast({ 
           title: "Verification Failed", 
           description: data.error || "Invalid OTP", 
@@ -289,13 +304,14 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
         {step === 1 && (
           <div className="space-y-6">
+            
+            {/* UPDATED PASSPORT BANNER */}
             {passportData && (
-               <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 md:p-8 rounded-[40px] text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl shadow-orange-500/20">
-                  <div>
-                    <h3 className="font-black text-2xl flex items-center gap-2 mb-2"><Fingerprint className="w-6 h-6"/> Passport Detected</h3>
-                    <p className="text-orange-50 font-medium">Inject verified Proof of Work blocks instantly.</p>
-                  </div>
-                  <Button type="button" onClick={handleUsePassport} className="w-full md:w-auto h-14 bg-white text-orange-600 font-black rounded-2xl px-8 shadow-lg transition-all active:scale-95">One-Click Apply</Button>
+               <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 md:p-8 rounded-[40px] text-white shadow-xl shadow-orange-500/20">
+                  <h3 className="font-black text-2xl flex items-center gap-2 mb-2"><Fingerprint className="w-6 h-6"/> Passport Active</h3>
+                  <p className="text-orange-50 font-medium leading-relaxed">
+                    Your verified blocks are ready. Please upload a job-specific resume below to extract your Academics and any new projects or roles. We will merge them automatically.
+                  </p>
                </div>
             )}
 
@@ -318,7 +334,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 <div className="relative"><Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input required type="text" placeholder="username" value={formData.githubUsername} onChange={e => setFormData({...formData, githubUsername: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-mono font-bold text-slate-700" /></div>
               </div>
 
-              {/* --- NEW FILE UPLOAD COMPONENT --- */}
+              {/* NEW FILE UPLOAD COMPONENT */}
               <div className="space-y-2 p-6 rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50">
                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2"><UploadCloud className="w-4 h-4 text-blue-500"/> Upload Resume PDF</label>
                  <input 
@@ -383,9 +399,14 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                       <button type="button" onClick={() => removeExperience(index)} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
 
                       <div className="flex justify-between items-start mb-6 pr-8">
-                        <div>
+                        <div className="flex-grow pr-4">
                           <h4 className="font-black text-xl text-slate-900">{exp.title}</h4>
-                          <p className="text-sm text-slate-500 font-bold">{exp.company} • {exp.startDate} - {exp.endDate} <span className="ml-2 text-blue-600 uppercase text-[10px] bg-blue-50 px-2 py-0.5 rounded">({calculateDuration(exp.startDate, exp.endDate)})</span></p>
+                          <p className="text-sm text-slate-500 font-bold mb-3">{exp.company} • {exp.startDate} - {exp.endDate} <span className="ml-2 text-blue-600 uppercase text-[10px] bg-blue-50 px-2 py-0.5 rounded">({calculateDuration(exp.startDate, exp.endDate)})</span></p>
+                          {exp.description && (
+                            <p className="text-sm text-slate-600 font-medium leading-relaxed bg-white p-4 rounded-xl border border-slate-100">
+                               {exp.description}
+                            </p>
+                          )}
                         </div>
                         <span className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0 ${exp.verificationBadge ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'}`}>
                            {exp.verificationBadge ? <><ShieldCheck className="w-4 h-4" /> {exp.verificationBadge}</> : "Unverified"}
