@@ -1,61 +1,57 @@
-"use client";
-
-import { createContext, useContext, useEffect, useState } from "react";
-import { 
-  onAuthStateChanged, 
-  User, 
-  signOut as firebaseSignOut 
-} from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+"use client"
+import { createContext, useContext, useEffect, useState } from "react"
+import { auth, db } from "@/lib/firebase"
+import { onAuthStateChanged, User, signOut } from "firebase/auth"
+import { doc, getDoc } from "firebase/firestore"
 
 interface AuthContextType {
   user: User | null;
+  role: "employer" | "candidate" | null;
   loading: boolean;
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  logout: async () => {},
-});
+const AuthContext = createContext<AuthContextType>({} as AuthContextType)
 
-export const useAuth = () => useContext(AuthContext);
-
-export const AuthContextProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+  const [role, setRole] = useState<"employer" | "candidate" | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      try {
-        if (currentUser) {
-          setUser(currentUser);
-        } else {
-          setUser(null);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser)
+        // Fetch the role from Firestore
+        try {
+          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid))
+          if (userDoc.exists()) {
+            setRole(userDoc.data().role as "employer" | "candidate")
+          }
+        } catch (error) {
+          console.error("Error fetching role:", error)
         }
-      } catch (error) {
-        console.error("Auth State Change Error:", error);
-        setUser(null);
-      } finally {
-        setLoading(false);
+      } else {
+        setUser(null)
+        setRole(null)
       }
-    });
+      setLoading(false)
+    })
 
-    return () => unsubscribe();
-  }, []);
+    return () => unsubscribe()
+  }, [])
 
   const logout = async () => {
-    await firebaseSignOut(auth);
-    setUser(null);
-    router.push("/auth/login");
-  };
+    await signOut(auth)
+    setUser(null)
+    setRole(null)
+  }
 
   return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
+    <AuthContext.Provider value={{ user, role, loading, logout }}>
       {children}
     </AuthContext.Provider>
-  );
-};
+  )
+}
+
+export const useAuth = () => useContext(AuthContext)

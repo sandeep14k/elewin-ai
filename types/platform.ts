@@ -4,10 +4,17 @@ export interface Job {
   companyName: string;
   title: string;
   description: string;
-  experienceLevel: string;
+  experienceLevel: "Junior" | "Mid" | "Senior" | "Lead";
   requiredSkills: string[];
   status: "open" | "closed";
-  createdAt: any;
+  createdAt: any; 
+  
+  // ADD THIS NEW BLOCK
+  automation?: {
+    autoShortlistThreshold: number | null;
+    autoRejectThreshold: number | null;
+    interviewLink: string;
+  };
 }
 
 export interface Application {

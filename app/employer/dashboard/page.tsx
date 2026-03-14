@@ -2,139 +2,161 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/context/authcontext"
-import { getEmployerDashboard } from "@/lib/employer"
-import Link from "next/link"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { 
-  Briefcase, Users, Plus, ArrowRight, Loader2, Building2, Share2, CheckCircle2
+  Plus, Copy, Users, Briefcase, Zap, Loader2, Activity, CheckCircle2 
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Navbar from "@/components/navbar"
+import { useToast } from "@/components/ui/use-toast"
+import { Job } from "@/types/platform"
 
 export default function EmployerDashboard() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, role, loading } = useAuth()
   const router = useRouter()
+  const { toast } = useToast()
   
-  const [jobs, setJobs] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [isLoadingJobs, setIsLoadingJobs] = useState(true)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  // --- THE BOUNCER (ROUTE GUARD) ---
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-        setIsLoading(false);
-        return;
-    }
-
-    const fetchDashboard = async () => {
-      try {
-        const data = await getEmployerDashboard(user.uid)
-        setJobs(data)
-      } catch (error) {
-        console.error(error)
-      } finally {
-        setIsLoading(false)
+    if (!loading) {
+      if (!user) {
+        router.push("/auth/login")
+      } else if (role !== "employer") {
+        router.push("/candidate/passport") // Kick candidates out
       }
     }
-    fetchDashboard()
-  }, [user, authLoading])
+  }, [user, role, loading, router])
 
-  const copyShareLink = (jobId: string) => {
-    const url = `${window.location.origin}/jobs/${jobId}/apply`
-    navigator.clipboard.writeText(url)
-    setCopiedId(jobId)
-    setTimeout(() => setCopiedId(null), 2000) // Reset after 2 seconds
-  }
+  // --- FETCH COMPANY JOBS ---
+  useEffect(() => {
+    const fetchJobs = async () => {
+      if (!user) return
+      try {
+        const q = query(
+          collection(db, "jobs"), 
+          where("companyId", "==", user.uid)
+        )
+        const snap = await getDocs(q)
+        const jobList: Job[] = []
+        snap.forEach(doc => jobList.push({ id: doc.id, ...doc.data() } as Job))
+        
+        // Sort newest first
+        setJobs(jobList.sort((a, b) => b.createdAt - a.createdAt))
+      } catch (error) {
+        console.error("Error fetching jobs:", error)
+        toast({ title: "Error", description: "Failed to load jobs.", variant: "destructive" })
+      } finally {
+        setIsLoadingJobs(false)
+      }
+    }
 
-  if (authLoading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
-  }
+    if (user && role === "employer") {
+      fetchJobs()
+    }
+  }, [user, role, toast])
 
-  if (!user) {
+  // Block rendering until auth is verified
+  if (loading || role !== "employer") {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center">
-        <Building2 className="w-16 h-16 text-slate-300 mb-4" />
-        <h1 className="text-2xl font-bold text-slate-800 mb-2">Company Access Required</h1>
-        <p className="text-slate-500 mb-6 max-w-md">You must be logged in as an employer to view your dashboard and shortlisted candidates.</p>
-        <div className="flex gap-4">
-            <Button onClick={() => router.push('/auth/login')} className="bg-slate-800 hover:bg-slate-900 text-white px-8">Sign In</Button>
-           <Button onClick={() => router.push('/auth/signup')} className="bg-transparent border border-slate-300 text-slate-900 hover:bg-slate-50 px-8">Create Account</Button>        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="w-10 h-10 animate-spin text-orange-500 mb-4" />
+        <p className="text-[10px] font-black tracking-widest uppercase text-slate-400">Verifying Credentials...</p>
       </div>
     )
   }
 
+  const copyShareLink = (jobId: string) => {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin
+    const url = `${baseUrl}/jobs/${jobId}/apply`
+    navigator.clipboard.writeText(url)
+    setCopiedId(jobId)
+    toast({ title: "Link Copied!", description: "Share this link to accept forensic applications." })
+    setTimeout(() => setCopiedId(null), 3000)
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-slate-50 font-sans pb-20">
       <Navbar />
       
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <main className="max-w-6xl mx-auto px-4 py-12">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Employer Dashboard</h1>
-            <p className="text-slate-500 mt-1">
-              Welcome back, {user.displayName || "Recruiter"}. Manage your active job postings.
-            </p>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#050A15] text-white rounded-full mb-4 text-[10px] font-black uppercase tracking-widest">
+              <Zap className="w-3 h-3 text-orange-500" /> Command Center
+            </div>
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Active Pipelines</h1>
           </div>
+          
           <Link href="/employer/post-job">
-            <Button className="bg-orange-500 hover:bg-orange-600 text-white font-bold shadow-md shadow-orange-500/20 flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Post New Job
+            <Button className="bg-orange-500 hover:bg-orange-600 text-white font-black h-14 px-8 rounded-2xl shadow-xl shadow-orange-500/20 transition-all active:scale-95">
+              <Plus className="w-5 h-5 mr-2" /> Deploy New Role
             </Button>
           </Link>
         </div>
 
-        {isLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div>
+        {/* Jobs Grid */}
+        {isLoadingJobs ? (
+          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-slate-300" /></div>
         ) : jobs.length === 0 ? (
-            <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center flex flex-col items-center">
-                <Briefcase className="w-12 h-12 text-slate-300 mb-4" />
-                <h3 className="text-lg font-bold text-slate-800">No active job postings</h3>
-                <p className="text-slate-500 mt-2 mb-6 max-w-sm">You haven't posted any roles yet. Create your first job to start receiving AI-verified applications.</p>
-                <Link href="/employer/post-job">
-                    <Button className="bg-slate-800 hover:bg-slate-900 text-white">Post Your First Job</Button>
-                </Link>
-            </div>
+          <div className="bg-white border-2 border-dashed border-slate-200 rounded-[40px] p-20 text-center flex flex-col items-center">
+             <Briefcase className="w-16 h-16 text-slate-200 mb-6" />
+             <h3 className="text-2xl font-black text-slate-900 mb-2">No active roles</h3>
+             <p className="text-slate-500 font-medium mb-8 max-w-md">You haven't deployed any forensic pipelines yet. Create your first role to start verifying candidates.</p>
+             <Link href="/employer/post-job">
+               <Button className="bg-[#050A15] text-white rounded-xl h-12 px-8 font-bold">Deploy Role</Button>
+             </Link>
+          </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {jobs.map((job) => (
-                    <div key={job.id} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all flex flex-col h-full">
-                        
-                        <div className="flex justify-between items-start mb-4">
-                            <div className={`px-2.5 py-1 rounded text-xs font-bold ${job.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
-                                {job.status.toUpperCase()}
-                            </div>
-                            <Button 
-                                variant="ghost" 
-                                size="sm"
-                                onClick={() => copyShareLink(job.id)}
-                                className={`text-xs h-7 px-2 ${copiedId === job.id ? 'text-green-600 bg-green-50' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'}`}
-                            >
-                                {copiedId === job.id ? <><CheckCircle2 className="w-3 h-3 mr-1" /> Copied</> : <><Share2 className="w-3 h-3 mr-1" /> Share Link</>}
-                            </Button>
-                        </div>
-
-                        <h3 className="text-xl font-bold text-slate-900 mb-1">{job.title}</h3>
-                        <p className="text-sm text-slate-500 mb-6">{job.experienceLevel} Level</p>
-
-                        <div className="mt-auto pt-6 border-t border-slate-100 flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-slate-700">
-                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                    <Users className="w-4 h-4" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold leading-none">{job.applicantCount}</p>
-                                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mt-1">Applicants</p>
-                                </div>
-                            </div>
-
-                            <Link href={`/employer/jobs/${job.id}`}>
-                                <Button className="bg-slate-900 hover:bg-black text-white font-bold text-sm h-9">
-                                    View Pipeline <ArrowRight className="w-4 h-4 ml-2" />
-                                </Button>
-                            </Link>
-                        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {jobs.map((job) => (
+              <div key={job.id} className="bg-white border border-slate-200 rounded-[32px] p-8 shadow-sm hover:shadow-xl transition-all group flex flex-col h-full">
+                <div className="flex-grow">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${job.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {job.status === 'open' ? 'Active' : 'Closed'}
                     </div>
-                ))}
-            </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => copyShareLink(job.id!)}
+                      className={`h-8 rounded-xl text-xs font-bold transition-colors ${copiedId === job.id ? 'bg-green-50 text-green-700 border-green-200' : 'text-slate-500 border-slate-200 hover:border-orange-500 hover:text-orange-600'}`}
+                    >
+                      {copiedId === job.id ? <CheckCircle2 className="w-4 h-4 mr-1.5" /> : <Copy className="w-4 h-4 mr-1.5" />}
+                      {copiedId === job.id ? 'Copied' : 'Share Link'}
+                    </Button>
+                  </div>
+                  
+                  <h3 className="text-2xl font-black text-slate-900 mb-2 leading-tight group-hover:text-orange-600 transition-colors">{job.title}</h3>
+                  <p className="text-slate-500 text-sm font-medium mb-6 line-clamp-2">{job.description}</p>
+                  
+                  <div className="flex flex-wrap gap-2 mb-8">
+                    {job.requiredSkills.slice(0, 3).map(skill => (
+                      <span key={skill} className="bg-slate-50 text-slate-600 border border-slate-100 px-2 py-1 rounded-md text-[10px] font-bold uppercase">{skill}</span>
+                    ))}
+                    {job.requiredSkills.length > 3 && (
+                      <span className="bg-slate-50 text-slate-400 border border-slate-100 px-2 py-1 rounded-md text-[10px] font-bold uppercase">+{job.requiredSkills.length - 3} more</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-100 mt-auto">
+                  <Link href={`/employer/jobs/${job.id}`}>
+                    <Button className="w-full bg-slate-50 hover:bg-[#050A15] text-slate-700 hover:text-white h-14 rounded-2xl font-black transition-all group-hover:shadow-lg">
+                      <Activity className="w-5 h-5 mr-2" /> View Forensic Pipeline
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </main>
     </div>

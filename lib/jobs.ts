@@ -14,14 +14,22 @@ export const createJob = async (
       description: jobData.description,
       experienceLevel: jobData.experienceLevel,
       requiredSkills: jobData.requiredSkills,
+      
+      // --- THE ATS KILLER: Forensic Automation Rules ---
+      automation: {
+        autoShortlistThreshold: jobData.automation?.autoShortlistThreshold || null,
+        autoRejectThreshold: jobData.automation?.autoRejectThreshold || null,
+        interviewLink: jobData.automation?.interviewLink || "",
+      },
+
       status: "open",
-      createdAt: Timestamp.now(), // Use the imported Timestamp
+      createdAt: Timestamp.now(), 
     });
     
     console.log("Job created successfully with ID:", docRef.id);
     return docRef.id;
   } catch (error) {
     console.error("Firebase Error creating job:", error);
-    throw error; // Throw the actual error so the UI can see it
+    throw error; 
   }
 };
