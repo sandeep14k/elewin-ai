@@ -181,69 +181,131 @@ If a candidate reaches this score:
 
 ## 1️⃣ Clone the Repository
 
-```bash
-git clone https://github.com/sandeep14k/elewin-ai
-cd elewin
-2️⃣ Install Dependencies
+``` bash
+git clone https://github.com/sandeep14k/elewin-ai.git
+cd elewin-ai
+```
+
+------------------------------------------------------------------------
+
+## 2️⃣ Install Dependencies
+
+``` bash
 npm install
-3️⃣ Environment Variables
-Create a .env.local file in the root directory.
-# --- FIREBASE CLIENT CONFIG ---
-NEXT_PUBLIC_FIREBASE_API_KEY="your_firebase_api_key"
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="your_project_id.firebaseapp.com"
-NEXT_PUBLIC_FIREBASE_PROJECT_ID="your_project_id"
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="your_project_id.appspot.com"
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your_sender_id"
-NEXT_PUBLIC_FIREBASE_APP_ID="your_app_id"
+```
 
-# --- OPENAI CONFIG ---
-OPENAI_API_KEY="sk-proj-your-openai-secret-key"
+------------------------------------------------------------------------
 
-# --- GITHUB GRAPHQL CONFIG ---
-GITHUB_TOKEN="ghp_your_github_personal_access_token"
+## 3️⃣ Environment Variables
 
-# --- RESEND CONFIG ---
-RESEND_API_KEY="re_your_resend_api_key"
-▶ Run Development Server
+Create a **.env.local** file in the **root directory**.
+
+    # --- FIREBASE CLIENT CONFIG ---
+    NEXT_PUBLIC_FIREBASE_API_KEY="your_firebase_api_key"
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="your_project_id.firebaseapp.com"
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID="your_project_id"
+    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="your_project_id.appspot.com"
+    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your_sender_id"
+    NEXT_PUBLIC_FIREBASE_APP_ID="your_app_id"
+
+    # --- OPENAI CONFIG ---
+    OPENAI_API_KEY="sk-proj-your-openai-secret-key"
+
+    # --- GITHUB GRAPHQL CONFIG ---
+    GITHUB_TOKEN="ghp_your_github_personal_access_token"
+
+    # --- RESEND CONFIG ---
+    RESEND_API_KEY="re_your_resend_api_key"
+
+------------------------------------------------------------------------
+
+## ▶ Run Development Server
+
+``` bash
 npm run dev
-Open:
-http://localhost:3000
-🗺 User Workflows
-👨‍💼 Employer (HR Admin)
-Create Job Post
-Define:
-Role
-Required skills
-Minimum experience
-Automation Rules
-Set match score threshold (example 85/100) and provide a Calendly link.
-Share Link
+```
+
+Open in browser:
+
+    http://localhost:3000
+
+------------------------------------------------------------------------
+
+# 🗺 User Workflows
+
+## 👨‍💼 Employer (HR Admin)
+
+### Create Job Post
+
+Define: - Role\
+- Required skills\
+- Minimum experience
+
+### Automation Rules
+
+Set **match score threshold** (example **85/100**) and provide a
+**Calendly link**.
+
+### Share Link
+
 Distribute tracking link:
-elewin.io/apply/company/job-id
-View Matrix
-Watch the Live Leaderboard populate as candidates are ranked instantly.
-👨‍💻 Candidate Workflow
-Intake
-Upload:
-Job-specific PDF Resume
-Securely connect GitHub via OAuth
-AI Extraction
-Engine extracts claims into structured blocks.
-Verification Gauntlet
-Candidate verifies:
-Proprietary experience (OTP or Document Vault)
-Public GitHub projects
-Passport Sync
-Verified blocks saved to EleWin Passport for future 1-click applications.
-Live Tracking
-Candidate receives a unique dashboard URL to monitor:
-Match Score
-Shortlist status
-Live Forensic Skill Graph
-Interview invites
-🔒 Zero-Trust Hiring
-EleWin removes resume fraud by enforcing Proof of Work verification across all professional claims.
-If it cannot be verified, it does not count.
-⚡ EleWin
-Trust Nothing.
-Verify Everything.
+
+    xxxxxx//status/{submittedId}
+
+### View Matrix
+
+Watch the **Live Leaderboard** populate as candidates are ranked
+instantly.
+
+------------------------------------------------------------------------
+
+## 👨‍💻 Candidate Workflow
+
+### Intake
+
+Upload: - Job-specific **PDF Resume** - Securely connect **GitHub via
+OAuth**
+
+### AI Extraction
+
+Engine extracts claims into **structured blocks**.
+
+### Verification Gauntlet
+
+Candidate verifies: - Proprietary experience (**OTP or Document
+Vault**)\
+- Public **GitHub projects**
+
+### Passport Sync
+
+Verified blocks saved to **EleWin Passport** for future **1-click
+applications**.
+
+### Live Tracking
+
+Candidate receives a **dashboard URL** to monitor:
+
+-   Match Score\
+-   Shortlist status\
+-   Live Forensic Skill Graph\
+-   Interview invites
+
+------------------------------------------------------------------------
+
+# 🔒 Zero-Trust Hiring
+
+EleWin removes resume fraud by enforcing **Proof of Work verification**
+across all professional claims.
+
+**If it cannot be verified, it does not count.**
+
+------------------------------------------------------------------------
+
+# ⚡ EleWin
+
+**Trust Nothing.\
+Verify Everything.**
+
+
+**Trust Nothing.  
+Verify Everything.**

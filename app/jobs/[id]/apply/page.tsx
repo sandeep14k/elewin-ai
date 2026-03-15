@@ -376,7 +376,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 <p className="text-sm font-bold text-slate-600 truncate">
   {process.env.NEXT_PUBLIC_BASE_URL?.replace(/^https?:\/\//, '')}/status/{submittedId}
 </p>               </div>
-              <Button 
+<Button 
   onClick={() => { 
     const link = `${process.env.NEXT_PUBLIC_BASE_URL}/status/${submittedId}`;
     navigator.clipboard.writeText(link); 
@@ -387,6 +387,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 >
   <Copy className="w-4 h-4" />
 </Button>
+            </div>
             <Button onClick={() => router.push(`/status/${submittedId}`)} className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-2xl font-black shadow-lg shadow-orange-500/20">View Live Matrix</Button>
           </div>
         </div>
