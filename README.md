@@ -216,6 +216,8 @@ Create a **.env.local** file in the **root directory**.
 
     # --- RESEND CONFIG ---
     RESEND_API_KEY="re_your_resend_api_key"
+    NEXT_PUBLIC_BASE_URL="http://localhost:3000" # Local
+#NEXT_PUBLIC_BASE_URL="https://your-live-domain.com" # Production
 
 ------------------------------------------------------------------------
 
