@@ -373,10 +373,20 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-3 mb-8">
                <div className="flex-grow text-left overflow-hidden">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID</p>
-                  <p className="text-sm font-bold text-slate-600 truncate">elewin.io/status/{submittedId}</p>
-               </div>
-               <Button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/status/${submittedId}`); toast({ title: "Copied" }); }} variant="ghost" size="icon"><Copy className="w-4 h-4" /></Button>
-            </div>
+<p className="text-sm font-bold text-slate-600 truncate">
+  {process.env.NEXT_PUBLIC_BASE_URL?.replace(/^https?:\/\//, '')}/status/{submittedId}
+</p>               </div>
+              <Button 
+  onClick={() => { 
+    const link = `${process.env.NEXT_PUBLIC_BASE_URL}/status/${submittedId}`;
+    navigator.clipboard.writeText(link); 
+    toast({ title: "Link Copied to Clipboard" }); 
+  }} 
+  variant="ghost" 
+  size="icon"
+>
+  <Copy className="w-4 h-4" />
+</Button>
             <Button onClick={() => router.push(`/status/${submittedId}`)} className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-2xl font-black shadow-lg shadow-orange-500/20">View Live Matrix</Button>
           </div>
         </div>
