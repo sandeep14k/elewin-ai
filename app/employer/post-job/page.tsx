@@ -31,7 +31,8 @@ export default function PostJobPage() {
     automation: {
       autoShortlistThreshold: 85,
       autoRejectThreshold: 40,
-      interviewLink: ""
+      interviewLink: "",
+      flagHighVelocity: true
     }
   })
 
@@ -106,16 +107,19 @@ export default function PostJobPage() {
 
     setIsLoading(true)
     try {
-      await createJob({
-        companyId: user!.uid,
-        companyName: formData.companyName,
-        title: formData.title,
-        description: formData.description,
-        experienceLevel: formData.experienceLevel,
-        requiredSkills: formData.requiredSkills,
-        // Pass automation down to Firebase
-        automation: formData.automation
-      })
+        await createJob({
+          companyId: user!.uid,
+          employerId: user!.uid, // Satisfies the employerId requirement
+          companyName: formData.companyName,
+          title: formData.title,
+          description: formData.description,
+          experienceLevel: formData.experienceLevel, // or "Mid"
+          requiredSkills: formData.requiredSkills,
+          type: "Full-Time",     // Default value
+          department: "Engineering", // Default value
+          location: "Remote",    // Default value
+          automation: formData.automation
+        })
 
       toast({ title: "Live!", description: "Forensic pipeline and auto-triggers are now active." })
       router.push(`/employer/dashboard`) 

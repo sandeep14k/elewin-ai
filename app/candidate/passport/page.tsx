@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/context/authcontext"
-import { db } from "@/lib/firebase"
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
+import { db, auth } from "@/lib/firebase" // Ensure auth is imported
+import { collection, query, where, getDocs, doc, getDoc, setDoc } from "firebase/firestore"
+import { signInWithPopup, GithubAuthProvider, getAdditionalUserInfo, linkWithPopup, signInWithCredential } from "firebase/auth"
 import { addToPassportLibrary, removeFromPassportLibrary, updatePassportBlock } from "@/lib/passport"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -22,14 +23,13 @@ import { Application } from "@/types/platform"
 import { useToast } from "@/components/ui/use-toast"
 
 export default function CandidatePassportPage() {
-  const { user, role, loading } = useAuth()
+  const { user,  loading } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
   
   const [profile, setProfile] = useState<any>(null)
   const [applications, setApplications] = useState<Application[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [isSyncingResume, setIsSyncingResume] = useState(false)
   
   const [activeTab, setActiveTab] = useState<"overview" | "proof-of-work" | "applications">("overview")
@@ -47,16 +47,13 @@ export default function CandidatePassportPage() {
   const [isProcessingOtp, setIsProcessingOtp] = useState(false)
   const [isVerifyingDoc, setIsVerifyingDoc] = useState<string | null>(null)
 
-  // --- NEW: Inline Editing State for Missing Project URLs ---
   const [editingUrls, setEditingUrls] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!loading) {
       if (!user) router.push("/auth/login")
-      else if (role !== "candidate") router.push("/employer/dashboard")
     }
-  }, [user, role, loading, router])
-
+  }, [user, loading, router])
   const fetchPassportData = async () => {
     if (!user) return
     try {
@@ -66,12 +63,67 @@ export default function CandidatePassportPage() {
       const appsSnap = await getDocs(query(collection(db, "applications"), where("candidateId", "==", user.uid)))
       const appsList: Application[] = []
       appsSnap.forEach(d => appsList.push({ id: d.id, ...d.data() } as Application))
-      setApplications(appsList.sort((a, b) => (b.appliedAt?.seconds || 0) - (a.appliedAt?.seconds || 0)))
+      setApplications(appsList.sort((a: any, b: any) => (b.appliedAt?.seconds || 0) - (a.appliedAt?.seconds || 0)))
     } catch (error) { console.error(error) } 
     finally { setIsLoadingData(false) }
   }
 
-  useEffect(() => { if (user && role === "candidate") fetchPassportData() }, [user, role])
+useEffect(() => { 
+    if (user) fetchPassportData() 
+  }, [user])
+  // --- CONNECT GITHUB TO PASSPORT ---
+  const handleConnectGithub = async () => {
+    try {
+      const provider = new GithubAuthProvider()
+      provider.addScope('read:user')
+      provider.addScope('public_repo') 
+      
+      let result;
+      if (user) {
+        try {
+          result = await linkWithPopup(auth.currentUser!, provider)
+        } catch (linkError: any) {
+          if (linkError.code === 'auth/credential-already-in-use') {
+             const credential = GithubAuthProvider.credentialFromError(linkError);
+             if (credential) result = await signInWithCredential(auth, credential);
+             else throw linkError; 
+          } else {
+             throw linkError;
+          }
+        }
+      } else {
+         result = await signInWithPopup(auth, provider);
+      }
+      
+      const credential = GithubAuthProvider.credentialFromResult(result!);
+      const token = credential?.accessToken;
+      const details = getAdditionalUserInfo(result!)
+      const verifiedUsername = details?.username
+
+    if (verifiedUsername && token && user) {
+        // 1. Use setDoc with merge: true. 
+        // This guarantees it saves even if the user document doesn't exist yet!
+        await setDoc(doc(db, "users", user.uid), {
+          githubUsername: verifiedUsername,
+          githubToken: token
+        }, { merge: true })
+        
+        // 2. OPTIMISTIC UI UPDATE: Instantly change the UI without waiting for a re-fetch
+        setProfile((prev: any) => ({
+           ...prev,
+           githubUsername: verifiedUsername,
+           githubToken: token
+        }))
+
+        // 3. Still run the fetch in the background just to ensure data parity
+        fetchPassportData()
+        
+        toast({ title: "Identity Verified!", description: `Passport linked to @${verifiedUsername}` })
+      }
+    } catch (error: any) {
+      toast({ title: "Connection Failed", description: error.message, variant: "destructive" })
+    }
+  }
 
   // --- LIBRARY CRUD HANDLERS ---
   const handleDeleteBlock = async (type: 'experienceLibrary' | 'projectsLibrary', blockId: string) => {
@@ -114,7 +166,6 @@ export default function CandidatePassportPage() {
     finally { setIsSubmittingBlock(false) }
   }
 
-  // --- FIX: Save Inline URL Update ---
   const handleUpdateProjectUrl = async (blockId: string) => {
     const url = editingUrls[blockId];
     if (!url) return;
@@ -212,16 +263,28 @@ export default function CandidatePassportPage() {
     toast({ title: "Proxy Selected", description: "AI will use GitHub timeline for this role." });
   };
 
-  if (loading || role !== "candidate" || isLoadingData) return (
+  // --- DYNAMIC FORENSIC GRAPH ---
+  const latestAnalyzedApp = applications.find(a => a.analysis?.forensic_skill_graph);
+  const fGraph = latestAnalyzedApp?.analysis?.forensic_skill_graph;
+
+  const globalChartData = fGraph ? [
+    { subject: 'Lang', A: fGraph.language_mastery || 0 },
+    { subject: 'Hygiene', A: fGraph.code_hygiene_and_testing || 0 },
+    { subject: 'Arch', A: fGraph.system_architecture || 0 },
+    { subject: 'DevOps', A: fGraph.devops_and_infra || 0 },
+    { subject: 'Data', A: fGraph.data_and_state || 0 },
+    { subject: 'Git', A: fGraph.version_control_habits || 0 },
+  ] : [
+    { subject: 'Lang', A: 0 }, { subject: 'Hygiene', A: 0 }, { subject: 'Arch', A: 0 },
+    { subject: 'DevOps', A: 0 }, { subject: 'Data', A: 0 }, { subject: 'Git', A: 0 },
+  ];
+
+ if (loading || isLoadingData) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
       <Loader2 className="w-10 h-10 animate-spin text-orange-500 mb-4" />
       <p className="text-[10px] font-black tracking-widest uppercase text-slate-400">Decrypting Passport...</p>
     </div>
   )
-
-  const globalChartData = profile?.skillsGraph || [
-    { subject: 'Frontend', A: 85 }, { subject: 'Backend', A: 72 }, { subject: 'Database', A: 68 }, { subject: 'DevOps', A: 45 }, { subject: 'Arch', A: 80 },
-  ]
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
@@ -239,10 +302,28 @@ export default function CandidatePassportPage() {
                     <h1 className="text-4xl md:text-5xl font-black mb-2 tracking-tight">{profile?.name}</h1>
                     <p className="text-slate-400 font-medium">{profile?.email} <CheckCircle2 className="w-4 h-4 inline text-green-500" /></p>
                 </div>
-                <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-sm flex items-center gap-4">
-                    <Github className="w-8 h-8 text-white" />
-                    <div><p className="text-[10px] font-black uppercase text-slate-400">GitHub Sync</p><p className="font-bold text-sm">Active</p></div>
-                </div>
+                
+                {/* DYNAMIC GITHUB UI */}
+                {profile?.githubUsername ? (
+                  <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-sm flex items-center gap-4">
+                      <Github className="w-8 h-8 text-green-400" />
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-slate-400">GitHub Sync Active</p>
+                        <p className="font-bold text-sm">@{profile.githubUsername}</p>
+                      </div>
+                  </div>
+                ) : (
+                  <Button 
+                    onClick={handleConnectGithub}
+                    className="bg-[#24292e] hover:bg-[#1b1f23] text-white p-6 rounded-3xl border border-white/10 shadow-xl flex items-center gap-3 transition-all h-auto"
+                  >
+                    <Github className="w-6 h-6" />
+                    <div className="text-left">
+                      <p className="text-[10px] font-black uppercase text-slate-400">Connect Profile</p>
+                      <p className="font-bold text-sm">Verify Identity</p>
+                    </div>
+                  </Button>
+                )}
             </div>
         </div>
 
@@ -268,7 +349,13 @@ export default function CandidatePassportPage() {
               </div>
               <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-slate-200">
                  <h3 className="text-2xl font-black mb-4">Intelligence Record</h3>
-                 <p className="text-slate-600 font-medium leading-relaxed">Your Passport stores your verified blocks. When applying via "Fast Apply," your verified Experience and Project blocks are automatically injected into the AI Scoring Engine.</p>
+                 <p className="text-slate-600 font-medium leading-relaxed mb-4">Your Passport stores your verified blocks. When applying via "Fast Apply," your verified Experience and Project blocks are automatically injected into the AI Scoring Engine.</p>
+                 {!fGraph && (
+                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-start gap-3">
+                       <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+                       <p className="text-sm font-medium text-orange-800">Your Forensic Matrix is currently empty. Apply to a job to generate your first AI verification score.</p>
+                    </div>
+                 )}
               </div>
           </div>
         )}
@@ -365,7 +452,6 @@ export default function CandidatePassportPage() {
                         {proj.url ? (
                           <a href={proj.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 flex items-center gap-1 hover:underline w-max"><LinkIcon className="w-3 h-3"/> {proj.url}</a>
                         ) : (
-                          // --- NEW: INLINE URL ADDER ---
                           <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl mt-4">
                             <span className="text-xs font-bold text-amber-700 flex items-center gap-1 mb-3">
                               <AlertTriangle className="w-4 h-4"/> 0 Weight: Missing Repository Link

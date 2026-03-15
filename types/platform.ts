@@ -1,22 +1,30 @@
 export interface Job {
   id?: string;
   companyId: string;
+  employerId: string;
   companyName: string;
   title: string;
+  department: string;
+  location: string;
+  type: string;
+  experienceLevel: string;
+  minExperience?: number;    // Added for PRD math
+  salaryRange?: string;      // Added for PRD UI
   description: string;
-  experienceLevel: "Junior" | "Mid" | "Senior" | "Lead";
   requiredSkills: string[];
-  status: "open" | "closed";
-  createdAt: any; 
+  mandatoryBlocks?: any;
+  status: string;
+  createdAt?: any;
   
-  // ADD THIS NEW BLOCK
+  // --- The properties TypeScript was crying about ---
+  applicationDeadline?: any; 
   automation?: {
-    autoShortlistThreshold: number | null;
-    autoRejectThreshold: number | null;
+    autoShortlistThreshold: number;
+    autoRejectThreshold: number;
+    flagHighVelocity: boolean;
     interviewLink: string;
   };
 }
-
 export interface Application {
   id?: string;
   jobId: string;
@@ -27,6 +35,8 @@ export interface Application {
   resumeUrl: string;
   githubUsername: string;
   linkedinUrl?: string;
+  appliedAt?: any;
+  passportBlocks?: any;
   status: "pending" | "analyzed" | "shortlisted" | "rejected";
   createdAt?: any;
   // THE DEEP ANALYSIS OBJECT
@@ -41,6 +51,14 @@ export interface Application {
     };
     isHiddenGem: boolean;
     learningVelocity: "High" | "Average" | "Low";
+    forensic_skill_graph?: {
+      language_mastery: number;
+      code_hygiene_and_testing: number;
+      system_architecture: number;
+      devops_and_infra: number;
+      data_and_state: number;
+      version_control_habits: number;
+    };
     skillGraph: {
       frontend: number;
       backend: number;

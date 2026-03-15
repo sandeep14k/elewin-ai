@@ -5,7 +5,8 @@ import { useAuth } from "@/context/authcontext"
 import { getJobById, submitApplication } from "@/lib/applications"
 import { Job } from "@/types/platform"
 import { useRouter } from "next/navigation"
-import { db } from "@/lib/firebase"
+import { signInWithPopup, GithubAuthProvider, getAdditionalUserInfo, linkWithPopup, signInWithCredential } from "firebase/auth"
+import { auth, db } from "@/lib/firebase"
 import { doc, getDoc } from "firebase/firestore"
 import { 
   Briefcase, Github, FileText, Loader2, UploadCloud,
@@ -35,8 +36,9 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [parsedBlocks, setParsedBlocks] = useState<any>(null)
   const [passportData, setPassportData] = useState<any>(null)
 
-  // --- NEW: File Upload State ---
+  // --- NEW: File Upload & GitHub Auth State ---
   const [resumeFile, setResumeFile] = useState<File | null>(null)
+  const [isGithubConnected, setIsGithubConnected] = useState(false)
 
   // Verification States
   const [isVerifyingDoc, setIsVerifyingDoc] = useState<number | null>(null)
@@ -51,6 +53,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     candidateEmail: "",
     resumeUrl: "",
     githubUsername: "",
+    githubToken: "" // NEW: Store the GitHub token securely in state
   })
 
   const calculateDuration = (start: string, end: string) => {
@@ -74,13 +77,33 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       const jobData = await getJobById(id)
       setJob(jobData)
       setIsLoadingJob(false)
+      
       if (user) {
         const userDocSnap = await getDoc(doc(db, "users", user.uid));
         if (userDocSnap.exists()) {
            const uData = userDocSnap.data();
-           setFormData(prev => ({ ...prev, candidateName: uData.name || "", candidateEmail: uData.email || "", githubUsername: uData.githubUsername || "" }))
+           
+           setFormData(prev => ({ 
+             ...prev, 
+             candidateName: uData.name || "", 
+             candidateEmail: uData.email || "", 
+             githubUsername: uData.githubUsername || "", 
+             // 🔥 NEW: Pull the token silently from the database!
+             githubToken: uData.githubToken || "" 
+           }))
+           
+           // 🔥 Auto-lock the GitHub UI if already verified in their Passport
+           if (uData.githubUsername && uData.githubToken) {
+             setIsGithubConnected(true)
+           }
+
            if (uData.experienceLibrary || uData.projectsLibrary) {
-              setPassportData({ workExperience: uData.experienceLibrary || [], projects: uData.projectsLibrary || [], education: uData.academicsLibrary || [], skills: uData.savedSkills || [] })
+              setPassportData({ 
+                workExperience: uData.experienceLibrary || [], 
+                projects: uData.projectsLibrary || [], 
+                education: uData.academicsLibrary || [], 
+                skills: uData.savedSkills || [] 
+              })
            }
         }
       }
@@ -88,10 +111,84 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     loadJobAndUser()
   }, [id, user])
 
+  // --- NEW: Secure GitHub OAuth Handler ---
+ const handleConnectGithub = async () => {
+    try {
+      const provider = new GithubAuthProvider()
+      provider.addScope('read:user')
+      provider.addScope('public_repo') 
+      
+      let result;
+      
+      if (user) {
+        try {
+          // Attempt to link the GitHub account to the current guest/email session
+          result = await linkWithPopup(auth.currentUser!, provider)
+        } catch (linkError: any) {
+          if (linkError.code === 'auth/credential-already-in-use') {
+             console.log("GitHub already registered. Extracting credential...");
+             
+             // 🔥 THE FIX: Extract the secure credential from the failed attempt
+             const credential = GithubAuthProvider.credentialFromError(linkError);
+             
+             if (credential) {
+               // Sign them in silently without triggering browser popup blockers!
+               result = await signInWithCredential(auth, credential);
+             } else {
+               throw linkError; 
+             }
+          } else {
+             throw linkError;
+          }
+        }
+      } else {
+        // Normal sign-in for completely logged-out users
+        result = await signInWithPopup(auth, provider)
+      }
+      
+      // Extract the secure GitHub Access Token
+      const credential = GithubAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken;
+      
+      const details = getAdditionalUserInfo(result)
+      const verifiedUsername = details?.username
+
+      if (verifiedUsername && token) {
+        setFormData(prev => ({ 
+           ...prev, 
+           githubUsername: verifiedUsername,
+           githubToken: token 
+        }))
+        setIsGithubConnected(true)
+        toast({ title: "Identity Verified!", description: `Successfully connected as @${verifiedUsername}` })
+      }
+    } catch (error: any) {
+      console.error("GitHub Auth Error:", error)
+      
+      if (error.code === 'auth/account-exists-with-different-credential') {
+        toast({ 
+          title: "Email Conflict", 
+          description: "This email is already registered. Please log in first.", 
+          variant: "destructive" 
+        })
+      } else {
+        toast({ 
+          title: "Connection Failed", 
+          description: error.message || "Could not connect to GitHub.", 
+          variant: "destructive" 
+        })
+      }
+    }
+  }
+
   // --- UPDATED: Merge Job-Specific Parse with Passport Data ---
   const handleLiveParse = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!job) return
+
+    if (!isGithubConnected) {
+      return toast({ title: "Verification Required", description: "Please connect your GitHub account to proceed.", variant: "destructive" });
+    }
 
     if (!resumeFile && !formData.resumeUrl) {
       return toast({ title: "Missing Resume", description: "Please upload a PDF file or provide a public link.", variant: "destructive" });
@@ -114,7 +211,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
         // If Passport exists, intelligently merge the arrays to prevent duplicates
         if (passportData) {
-          // Track existing items to prevent duplicates from the new parse
           const existingExp = new Set((passportData.workExperience || []).map((e: any) => `${e.title}-${e.company}`.toLowerCase()));
           const newExp = (data.structured.workExperience || []).filter((e: any) => !existingExp.has(`${e.title}-${e.company}`.toLowerCase()));
 
@@ -123,10 +219,8 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
           finalBlocks = {
             ...data.structured,
-            // Prioritize verified passport data, append new unrecognized parsed data
             workExperience: [...(passportData.workExperience || []), ...newExp],
             projects: [...(passportData.projects || []), ...newProj],
-            // Academics must come from the freshly parsed resume or fallback to passport
             education: data.structured.education?.length > 0 ? data.structured.education : (passportData.education || [])
           };
           toast({ title: "Data Merged", description: "Verified Passport records appended to job-specific resume." });
@@ -251,7 +345,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         linkedinUrl: "",
         passportBlocks: parsedBlocks 
       })
-      fetch("/api/analyze-application", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId, parsedBlocks }) });
+     fetch("/api/analyze-application", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ applicationId, parsedBlocks, githubToken: formData.githubToken }) // Pass token here
+      });
       setSubmittedId(applicationId); setStep(3);
     } catch (error) { toast({ title: "Submission Error", variant: "destructive" }); }
     finally { setIsSubmitting(false) }
@@ -318,23 +416,62 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             <form onSubmit={handleLiveParse} className="bg-white p-8 md:p-12 rounded-[40px] shadow-xl border border-slate-200 space-y-8">
               <h2 className="text-2xl font-black text-slate-900">Identity Record</h2>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-                  <input required type="text" value={formData.candidateName} onChange={e => setFormData({...formData, candidateName: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium" />
+             {/* SMART IDENTITY UI */}
+              {user ? (
+                <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex items-center justify-between mb-6">
+                   <div>
+                     <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-1">EleWin Verified Applicant</p>
+                     <p className="font-black text-lg text-slate-900">{formData.candidateName}</p>
+                     <p className="text-sm font-medium text-slate-500">{formData.candidateEmail}</p>
+                   </div>
+                   <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-6 h-6 text-blue-600" />
+                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email</label>
-                  <input required type="email" value={formData.candidateEmail} onChange={e => setFormData({...formData, candidateEmail: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium" />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
+                    <input required type="text" value={formData.candidateName} onChange={e => setFormData({...formData, candidateName: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email</label>
+                    <input required type="email" value={formData.candidateEmail} onChange={e => setFormData({...formData, candidateEmail: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium" />
+                  </div>
                 </div>
-              </div>
+              )}
 
+              {/* SECURE OAUTH UI */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between"><span>GitHub Username</span><span className="text-orange-500 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Required for Logic Score</span></label>
-                <div className="relative"><Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" /><input required type="text" placeholder="username" value={formData.githubUsername} onChange={e => setFormData({...formData, githubUsername: e.target.value})} className="w-full p-4 pl-12 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500 transition-all font-mono font-bold text-slate-700" /></div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between">
+                  <span>GitHub Profile</span>
+                  <span className="text-orange-500 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Identity Verification
+                  </span>
+                </label>
+                
+                {!isGithubConnected ? (
+                  <Button 
+                    type="button" 
+                    onClick={handleConnectGithub}
+                    className="w-full bg-[#24292e] hover:bg-[#1b1f23] text-white h-14 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all"
+                  >
+                    <Github className="w-5 h-5" /> Connect GitHub Account
+                  </Button>
+                ) : (
+                  <div className="w-full p-4 bg-green-50 border border-green-200 rounded-2xl flex items-center justify-between transition-all">
+                    <div className="flex items-center gap-3">
+                      <Github className="w-5 h-5 text-green-700" />
+                      <span className="font-mono font-bold text-green-800">
+                        @{formData.githubUsername}
+                      </span>
+                    </div>
+                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                  </div>
+                )}
               </div>
 
-              {/* NEW FILE UPLOAD COMPONENT */}
+              {/* FILE UPLOAD COMPONENT */}
               <div className="space-y-2 p-6 rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50">
                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2"><UploadCloud className="w-4 h-4 text-blue-500"/> Upload Resume PDF</label>
                  <input 

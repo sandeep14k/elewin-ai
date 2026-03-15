@@ -91,14 +91,14 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
         {/* --- LEADERBOARD --- */}
         <div className="space-y-6">
           {applications.map((app) => {
-            const chartData = [
-              { subject: 'Front', A: app.analysis?.skillGraph?.frontend || 0 },
-              { subject: 'Back', A: app.analysis?.skillGraph?.backend || 0 },
-              { subject: 'DB', A: app.analysis?.skillGraph?.database || 0 },
-              { subject: 'Ops', A: app.analysis?.skillGraph?.devops || 0 },
-              { subject: 'Arch', A: app.analysis?.skillGraph?.architecture || 0 },
-            ]
-
+           const chartData = [
+    { subject: 'Language Mastery', A: app.analysis?.forensic_skill_graph?.language_mastery || 0 },
+    { subject: 'Code Hygiene', A: app.analysis?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
+    { subject: 'Architecture', A: app.analysis?.forensic_skill_graph?.system_architecture || 0 },
+    { subject: 'DevOps & Infra', A: app.analysis?.forensic_skill_graph?.devops_and_infra || 0 },
+    { subject: 'Data & State', A: app.analysis?.forensic_skill_graph?.data_and_state || 0 },
+    { subject: 'Git Habits', A: app.analysis?.forensic_skill_graph?.version_control_habits || 0 },
+  ]
             return (
               <div key={app.id} className={`bg-white border-2 rounded-3xl transition-all overflow-hidden ${app.status === 'shortlisted' ? 'border-green-400 bg-green-50/5' : 'border-white shadow-sm hover:shadow-md'}`}>
                 <div className="p-6 md:p-8">

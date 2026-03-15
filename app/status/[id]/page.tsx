@@ -45,12 +45,13 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
     </div>
   )
 
-  const chartData = [
-    { subject: 'Frontend', A: app.analysis?.skillGraph?.frontend || 0 },
-    { subject: 'Backend', A: app.analysis?.skillGraph?.backend || 0 },
-    { subject: 'Database', A: app.analysis?.skillGraph?.database || 0 },
-    { subject: 'DevOps', A: app.analysis?.skillGraph?.devops || 0 },
-    { subject: 'Arch', A: app.analysis?.skillGraph?.architecture || 0 },
+ const chartData = [
+    { subject: 'Language Mastery', A: app.analysis?.forensic_skill_graph?.language_mastery || 0 },
+    { subject: 'Code Hygiene', A: app.analysis?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
+    { subject: 'Architecture', A: app.analysis?.forensic_skill_graph?.system_architecture || 0 },
+    { subject: 'DevOps & Infra', A: app.analysis?.forensic_skill_graph?.devops_and_infra || 0 },
+    { subject: 'Data & State', A: app.analysis?.forensic_skill_graph?.data_and_state || 0 },
+    { subject: 'Git Habits', A: app.analysis?.forensic_skill_graph?.version_control_habits || 0 },
   ]
 
   return (
@@ -151,6 +152,7 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
                    &quot;{app.analysis?.aiSummary || "The AI is currently processing your technical profile. Refresh the page in 60 seconds."}&quot;
                  </p>
               </div>
+
 
               <div className="grid grid-cols-2 gap-4">
                  <div className="bg-white p-6 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-center hover:border-blue-200 transition-colors">
