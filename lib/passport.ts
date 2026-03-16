@@ -1,30 +1,34 @@
 // lib/passport.ts
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, arrayUnion, arrayRemove, getDoc } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, arrayRemove, getDoc, setDoc } from "firebase/firestore";
 
 /**
  * Adds a new verified block (Experience or Project) to the candidate's persistent Passport.
  */
 export const addToPassportLibrary = async (
   userId: string, 
-  type: 'experienceLibrary' | 'projectsLibrary', 
-  blockData: any
+  type: 'experienceLibrary' | 'projectsLibrary' | 'academicsLibrary', 
+  block: any
 ) => {
   try {
     const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, {
-      [type]: arrayUnion({
-        ...blockData,
-        addedAt: new Date().toISOString(),
-        id: crypto.randomUUID() // Ensure each block has a unique ID for editing/removal
-      })
-    });
-    return { success: true };
+    
+    // Create a unique ID and timestamp for the new block
+    const blockWithMeta = {
+      ...block,
+      id: block.id || crypto.randomUUID(), 
+      addedAt: new Date().toISOString()
+    };
+
+    await setDoc(userRef, {
+      [type]: arrayUnion(blockWithMeta)
+    }, { merge: true });
+
   } catch (error) {
-    console.error(`Error adding to ${type}:`, error);
+    console.error(`[Error] Error adding to ${type}:`, error);
     throw error;
   }
-};
+}
 
 /**
  * Removes a specific block from the Passport library.

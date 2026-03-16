@@ -6,7 +6,7 @@ export interface Job {
   title: string;
   department: string;
   location: string;
-  type: string;
+  type?: string;
   experienceLevel: string;
   minExperience?: number;    // Added for PRD math
   salaryRange?: string;      // Added for PRD UI

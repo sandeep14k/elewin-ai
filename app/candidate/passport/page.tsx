@@ -180,33 +180,91 @@ useEffect(() => {
   }
 
   // --- SYNC FROM RESUME ---
+  // --- FIXED: SYNC FROM RESUME WITH DEDUPLICATION ---
+ // --- SYNC FROM RESUME WITH DEBUG LOGS ---
   const handleSyncResume = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user || !profile) return;
+    
+    console.log("🛠️ [DEBUG 1] Starting Sync. Current Profile from DB:", profile);
     setIsSyncingResume(true);
-    toast({ title: "Scanning Resume", description: "Extracting blocks to your Passport..." });
+    toast({ title: "Scanning Resume", description: "Filtering unique blocks..." });
 
     try {
       const uploadData = new FormData();
       uploadData.append("file", file);
+      
+      console.log("🛠️ [DEBUG 2] Sending PDF to OpenAI...");
       const res = await fetch("/api/parse-resume", { method: "POST", body: uploadData });
       const data = await res.json();
 
+      console.log("🛠️ [DEBUG 3] OpenAI Extracted Data:", data.structured);
+
       if (data.structured) {
-         let expCount = 0; let projCount = 0;
+         let expCount = 0; 
+         let projCount = 0;
+
+         // 1. DEDUPLICATE EXPERIENCE
+         const existingExpKeys = new Set(
+           (profile.experienceLibrary || []).map((e: any) => 
+             `${e.company}-${e.title}`.toLowerCase().trim()
+           )
+         );
+         console.log("🛠️ [DEBUG 4] Existing Experience Keys in Passport:", Array.from(existingExpKeys));
+
          if (data.structured.workExperience) {
-           for (const exp of data.structured.workExperience) { await addToPassportLibrary(user.uid, 'experienceLibrary', exp); expCount++; }
+           for (const exp of data.structured.workExperience) {
+             const key = `${exp.company}-${exp.title}`.toLowerCase().trim();
+             
+             if (!existingExpKeys.has(key)) {
+               console.log(`✅ [DEBUG 5a] ADDING New Experience: ${key}`);
+               await addToPassportLibrary(user.uid, 'experienceLibrary', exp);
+               expCount++;
+               existingExpKeys.add(key);
+             } else {
+               console.log(`❌ [DEBUG 5b] SKIPPING Duplicate Experience: ${key}`);
+             }
+           }
          }
+
+         // 2. DEDUPLICATE PROJECTS
+         const existingProjNames = new Set(
+           (profile.projectsLibrary || []).map((p: any) => 
+             (p.name || "").toLowerCase().trim()
+           )
+         );
+         console.log("🛠️ [DEBUG 6] Existing Project Keys in Passport:", Array.from(existingProjNames));
+
          if (data.structured.projects) {
-           for (const proj of data.structured.projects) { await addToPassportLibrary(user.uid, 'projectsLibrary', proj); projCount++; }
+           for (const proj of data.structured.projects) {
+             const nameKey = (proj.name || "").toLowerCase().trim();
+             
+             if (nameKey && !existingProjNames.has(nameKey)) {
+               console.log(`✅ [DEBUG 7a] ADDING New Project: ${nameKey}`);
+               await addToPassportLibrary(user.uid, 'projectsLibrary', proj);
+               projCount++;
+               existingProjNames.add(nameKey);
+             } else {
+               console.log(`❌ [DEBUG 7b] SKIPPING Duplicate Project: ${nameKey}`);
+             }
+           }
          }
-         fetchPassportData();
-         toast({ title: "Sync Complete", description: `Added ${expCount} Experiences and ${projCount} Projects.` });
+
+         console.log(`🛠️ [DEBUG 8] Sync Complete. Added ${expCount} Exp and ${projCount} Proj. Fetching fresh data...`);
+         await fetchPassportData(); // Refresh the UI
+         
+         if (expCount === 0 && projCount === 0) {
+            toast({ title: "Sync Finished", description: "No new unique blocks found. Everything is up to date." });
+         } else {
+            toast({ title: "Sync Complete", description: `Added ${expCount} new Experiences and ${projCount} new Projects.` });
+         }
       }
-    } catch (err) { toast({ title: "Sync Failed", variant: "destructive" }); }
+    } catch (err) { 
+      console.error("🚨 [DEBUG ERROR]", err);
+      toast({ title: "Sync Failed", variant: "destructive" }); 
+    }
     finally { setIsSyncingResume(false); }
   }
-
   // --- IN-PASSPORT VERIFICATION (Options A, B, C) ---
   const handleRequestOTP = async (blockId: string, companyName: string) => {
     if (!corpEmail) return toast({ title: "Work Email required", variant: "destructive" });
