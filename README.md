@@ -22,6 +22,7 @@ EleWin breaks down a candidate's profile into structured **Blocks**:
 - Projects  
 - Academics  
 - Skills  
+- Algorithms  
 
 Every professional claim must pass through our **verification gauntlet**.
 
@@ -70,9 +71,22 @@ This acts as a **mathematical authenticity proxy**.
 
 ---
 
+## Path D — Algorithmic Proof (Competitive Programming)
+
+Candidates can link their **LeetCode, Codeforces, CodeChef, and HackerRank** profiles.
+
+To prevent impersonation, EleWin enforces **Profile Text Verification**:
+
+- Candidate receives a **unique cryptographic hex code** (e.g., `EleWin-A1B2C3`)
+- They must place it temporarily in their platform profile ("About" or "City")
+- Backend scrapes and verifies ownership
+- Metrics are securely bound to their **EleWin Passport**
+
+---
+
 # 🕵️‍♂️ The "Anti-Cheat" Forensic Engine
 
-When a candidate links their profile via **Secure GitHub OAuth**, EleWin performs **deep forensic extraction** bypassing standard API rate limits using the **GitHub GraphQL API**.
+When a candidate links their profile via **Secure GitHub OAuth**, EleWin performs **deep forensic extraction** using the **GitHub GraphQL API**.
 
 ---
 
@@ -115,6 +129,22 @@ Dimensions include:
 
 ---
 
+## 4. Relational Skills Ontology
+
+EleWin doesn't just do keyword matching.
+
+Using our LLM, we generate a **Relational Skills Graph**:
+
+- Verified skills (e.g., Next.js, Prisma) act as **Core Nodes**
+- AI infers adjacent capabilities like:
+  - SSR
+  - Backend Routing
+  - Relational Databases
+
+This enables **deep capability inference beyond explicit claims**.
+
+---
+
 # 🪪 EleWin Passport
 
 Candidates verify their professional blocks **once**.
@@ -129,20 +159,66 @@ Future job applications allow candidates to:
 
 ---
 
+# 💎 Hidden Talent & Bias-Free Hiring
+
+## 📈 Learning Potential Index (LPI)
+
+We don't just evaluate current skill — we track **growth trajectory**.
+
+EleWin generates an **LPI score (0–100)** by analyzing:
+
+- Technology adoption timeline
+- Commit momentum
+- Transition into advanced practices (CI/CD, testing)
+
+---
+
+## 🌟 Hidden Gem Detection
+
+Traditional systems reject candidates with:
+
+- Low-tier colleges  
+- Career gaps  
+
+EleWin flags **Hidden Gems**:
+
+- Low Academics/Experience  
+- High Proof of Work  
+- Strong GitHub + Algorithmic + LPI signals  
+
+---
+
+## 🙈 Blind Evaluation Mode
+
+To eliminate bias, EleWin defaults to **Blind Mode**:
+
+- Names hidden  
+- Emails hidden  
+- GitHub handles hidden  
+
+Recruiters evaluate only:
+
+- Match Score  
+- LPI  
+- Skills Ontology  
+
+Identity is revealed **only after shortlisting**.
+
+---
+
 # ⚙️ Quality-Weighted AI Scoring
 
-EleWin enforces a strict **100-Point Match Score** based on deterministic math, eliminating AI hallucination in candidate ranking.
-
-Complexity is weighted heavier than sheer quantity.
+EleWin enforces a strict **100-Point Match Score** based on deterministic math.
 
 | Signal | Weight | Logic |
 |------|------|------|
-| Skills Match | 30% | Exact match with job description. Boosted **1.5×** if backed by deep GitHub repo data |
-| GitHub Quality | 25% | AI evaluates architectural complexity, code hygiene, and commit volume |
-| Verified Experience | 20% | Scored based on verified months. Unverified roles receive **0 multiplier** |
-| Verified Projects | 15% | Capped quantity to prevent spam; **70% driven by AI-graded project complexity** |
-| Academics | 5% | Uses **College Tier Normalization Curve** |
-| Velocity | 5% | Bonus points for rapid language adoption and positive commit trends |
+| Skills Match | 25% | Exact match with job description. Boosted 1.5× if backed by deep GitHub repo data |
+| GitHub Quality | 20% | AI evaluates architectural complexity, code hygiene, and commit volume |
+| Verified Experience | 20% | Scored based on verified months. Unverified roles receive 0 multiplier |
+| Verified Projects | 15% | Capped quantity to prevent spam; 70% driven by AI-graded project complexity |
+| Algorithmic Proof | 10% | Based on verified rating/problems solved across platforms |
+| Academics | 5% | Uses College Tier Normalization Curve |
+| Learning Potential | 5% | Evaluates tech adoption timeline and LPI momentum |
 
 ---
 
@@ -181,7 +257,7 @@ If a candidate reaches this score:
 
 ## 1️⃣ Clone the Repository
 
-``` bash
+```bash
 git clone https://github.com/sandeep14k/elewin-ai.git
 cd elewin-ai
 ```
