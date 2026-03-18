@@ -8,12 +8,16 @@ import {
   Loader2, Github, CheckCircle2, Clock, 
   Zap, Star, Trophy, ArrowLeft, Search, 
   CalendarCheck, PartyPopper, ExternalLink,
-  Target
+  Target,
+  Bot,
+  Network
 } from "lucide-react"
+
 import Link from "next/link"
 import Navbar from "@/components/navbar"
 import { 
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer 
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip
 } from 'recharts'
 
 export default function CandidateStatusPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,12 +44,12 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-center p-6">
       <Search className="w-16 h-16 text-slate-300 mb-4" />
       <h1 className="text-2xl font-black text-slate-800">Record Not Found</h1>
-      <p className="text-slate-500 font-medium mb-6">We couldn't find a forensic record associated with this tracking link.</p>
+      <p className="text-slate-500 font-medium mb-6">We couldn&apos;t find a forensic record associated with this tracking link.</p>
       <Link href="/"><button className="bg-[#050A15] text-white px-8 py-4 rounded-xl font-bold">Back to Job Board</button></Link>
     </div>
   )
 
- const chartData = [
+  const chartData = [
     { subject: 'Language Mastery', A: app.analysis?.forensic_skill_graph?.language_mastery || 0 },
     { subject: 'Code Hygiene', A: app.analysis?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
     { subject: 'Architecture', A: app.analysis?.forensic_skill_graph?.system_architecture || 0 },
@@ -53,6 +57,34 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
     { subject: 'Data & State', A: app.analysis?.forensic_skill_graph?.data_and_state || 0 },
     { subject: 'Git Habits', A: app.analysis?.forensic_skill_graph?.version_control_habits || 0 },
   ]
+  
+  const lpiTimeline = app.analysis?.learningPotential?.timeline?.map((t: any) => ({
+    month: t.date,
+    // Create an "intensity" curve based on commits + new tech adoption
+    intensity: t.commits + (t.newTech?.length || 0) * 15, 
+    repo: t.repo,
+    tech: t.newTech?.length > 0 ? t.newTech.join(", ") : "Continued mastery",
+    hasCI: t.hasCI
+  })) || [];
+
+  // Custom Tooltip for the LPI Chart
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-[#050A15] p-4 rounded-2xl border border-slate-700 shadow-xl text-white max-w-[200px]">
+          <p className="text-[10px] font-black uppercase text-orange-500 tracking-widest mb-1">{label}</p>
+          <p className="font-bold text-sm truncate mb-2">{data.repo}</p>
+          <div className="space-y-1">
+            <p className="text-xs text-slate-300"><span className="font-bold text-white">{data.intensity}</span> Activity Score</p>
+            <p className="text-xs text-slate-300 leading-tight"><span className="text-green-400 font-bold">Tech:</span> {data.tech}</p>
+            {data.hasCI && <p className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-1 rounded inline-block mt-1 uppercase font-black">CI/CD Used</p>}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-20">
@@ -142,6 +174,8 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
 
           {/* AI Insights (Right 3 Columns) */}
           <div className="md:col-span-3 space-y-6">
+            
+            {/* Forensic Output Card */}
             <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
               <h3 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                 <Zap className="w-6 h-6 text-orange-500" /> Forensic Output
@@ -152,7 +186,6 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
                    &quot;{app.analysis?.aiSummary || "The AI is currently processing your technical profile. Refresh the page in 60 seconds."}&quot;
                  </p>
               </div>
-
 
               <div className="grid grid-cols-2 gap-4">
                  <div className="bg-white p-6 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-center hover:border-blue-200 transition-colors">
@@ -166,6 +199,101 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
               </div>
             </div>
 
+            {/* Learning Potential Index Card */}
+            <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-end mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <Target className="w-6 h-6 text-blue-500" /> Learning Potential Index
+                  </h3>
+                  <p className="text-sm text-slate-500 font-medium mt-1">Tech adoption & repository maturity over time</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LPI Score</p>
+                  <p className="text-3xl font-black text-blue-600">{app.analysis?.learningPotential?.score || 0}<span className="text-lg text-slate-300">/100</span></p>
+                </div>
+              </div>
+              
+              {lpiTimeline.length > 0 ? (
+                <div className="w-full h-48 mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={lpiTimeline} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorIntensity" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip content={<CustomTooltip />} cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                      <Area type="monotone" dataKey="intensity" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorIntensity)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-center">
+                  <p className="text-slate-400 font-medium text-sm">Not enough historical repository data to map learning timeline.</p>
+                </div>
+              )}
+            </div>
+
+            {/* AI CAREER COPILOT CARD */}
+            {app.analysis?.career_copilot_roadmap && app.analysis.career_copilot_roadmap.length > 0 && (
+              <div className="bg-[#050A15] p-8 rounded-[32px] text-white shadow-xl relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none" />
+                 <h3 className="text-xl font-black flex items-center gap-2 mb-6 relative z-10">
+                   <Bot className="w-6 h-6 text-blue-400" /> AI Career Copilot
+                 </h3>
+                 <div className="space-y-4 relative z-10">
+                   {app.analysis.career_copilot_roadmap.map((step: string, i: number) => (
+                     <div key={i} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex gap-4 items-start">
+                       <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 font-black text-xs mt-0.5">
+                         {i + 1}
+                       </div>
+                       <p className="text-sm font-medium text-slate-300 leading-relaxed">{step}</p>
+                     </div>
+                   ))}
+                 </div>
+              </div>
+            )}
+
+            {/* SKILLS ONTOLOGY GRAPH */}
+            {app.analysis?.skills_ontology && app.analysis.skills_ontology.core_nodes?.length > 0 && (
+              <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
+                <div className="mb-6">
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <Network className="w-6 h-6 text-purple-500" /> Relational Skills Graph
+                  </h3>
+                  <p className="text-sm text-slate-500 font-medium mt-1">Inferred capabilities based on verified core tech</p>
+                </div>
+                
+                <div className="relative p-6 bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden flex flex-col items-center">
+                   {/* Core Nodes */}
+                   <div className="flex flex-wrap justify-center gap-3 mb-8 relative z-10">
+                     {app.analysis.skills_ontology.core_nodes.map((node: string, i: number) => (
+                        <span key={i} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-black shadow-lg shadow-purple-500/20 border border-purple-500">
+                          {node}
+                        </span>
+                     ))}
+                   </div>
+                   
+                   {/* Connection Lines (CSS UI Trick for Hackathons) */}
+                   <div className="w-px h-8 bg-slate-300 -mt-8 mb-4 relative z-0"></div>
+                   
+                   {/* Inferred Nodes */}
+                   <div className="flex flex-wrap justify-center gap-2 relative z-10">
+                     {app.analysis.skills_ontology.inferred_nodes.map((node: string, i: number) => (
+                        <span key={i} className="px-3 py-1.5 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 shadow-sm flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div> {node}
+                        </span>
+                     ))}
+                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* HIDDEN GEM CARD */}
             {app.analysis?.isHiddenGem && (
               <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[32px] p-8 text-white shadow-lg shadow-orange-500/20">
                  <div className="flex items-start gap-5">
@@ -181,6 +309,7 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
                  </div>
               </div>
             )}
+            
           </div>
         </div>
       </main>

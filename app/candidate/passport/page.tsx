@@ -48,12 +48,17 @@ export default function CandidatePassportPage() {
   const [isVerifyingDoc, setIsVerifyingDoc] = useState<string | null>(null)
 
   const [editingUrls, setEditingUrls] = useState<Record<string, string>>({})
+  const [platformInput, setPlatformInput] = useState({ platform: "leetcode", handle: "" })
+  const [isLinkingPlatform, setIsLinkingPlatform] = useState(false)
+  const [verificationStep, setVerificationStep] = useState<1 | 2>(1);
+  const [verificationCode, setVerificationCode] = useState("");
 
   useEffect(() => {
     if (!loading) {
       if (!user) router.push("/auth/login")
     }
   }, [user, loading, router])
+
   const fetchPassportData = async () => {
     if (!user) return
     try {
@@ -68,9 +73,10 @@ export default function CandidatePassportPage() {
     finally { setIsLoadingData(false) }
   }
 
-useEffect(() => { 
+  useEffect(() => { 
     if (user) fetchPassportData() 
   }, [user])
+
   // --- CONNECT GITHUB TO PASSPORT ---
   const handleConnectGithub = async () => {
     try {
@@ -100,24 +106,19 @@ useEffect(() => {
       const details = getAdditionalUserInfo(result!)
       const verifiedUsername = details?.username
 
-    if (verifiedUsername && token && user) {
-        // 1. Use setDoc with merge: true. 
-        // This guarantees it saves even if the user document doesn't exist yet!
+      if (verifiedUsername && token && user) {
         await setDoc(doc(db, "users", user.uid), {
           githubUsername: verifiedUsername,
           githubToken: token
         }, { merge: true })
         
-        // 2. OPTIMISTIC UI UPDATE: Instantly change the UI without waiting for a re-fetch
         setProfile((prev: any) => ({
            ...prev,
            githubUsername: verifiedUsername,
            githubToken: token
         }))
 
-        // 3. Still run the fetch in the background just to ensure data parity
         fetchPassportData()
-        
         toast({ title: "Identity Verified!", description: `Passport linked to @${verifiedUsername}` })
       }
     } catch (error: any) {
@@ -179,9 +180,7 @@ useEffect(() => {
     }
   }
 
-  // --- SYNC FROM RESUME ---
-  // --- FIXED: SYNC FROM RESUME WITH DEDUPLICATION ---
- // --- SYNC FROM RESUME WITH DEBUG LOGS ---
+  // --- SYNC FROM RESUME WITH DEDUPLICATION ---
   const handleSyncResume = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !profile) return;
@@ -265,6 +264,7 @@ useEffect(() => {
     }
     finally { setIsSyncingResume(false); }
   }
+
   // --- IN-PASSPORT VERIFICATION (Options A, B, C) ---
   const handleRequestOTP = async (blockId: string, companyName: string) => {
     if (!corpEmail) return toast({ title: "Work Email required", variant: "destructive" });
@@ -390,6 +390,254 @@ useEffect(() => {
           <Button variant={activeTab === "overview" ? "default" : "outline"} onClick={() => setActiveTab("overview")} className="rounded-xl font-bold h-12">Overview</Button>
           <Button variant={activeTab === "proof-of-work" ? "default" : "outline"} onClick={() => setActiveTab("proof-of-work")} className="rounded-xl font-bold h-12"><ShieldCheck className="w-4 h-4 mr-2" /> Proof of Work Library</Button>
           <Button variant={activeTab === "applications" ? "default" : "outline"} onClick={() => setActiveTab("applications")} className="rounded-xl font-bold h-12"><Briefcase className="w-4 h-4 mr-2" /> Applications</Button>
+        </div>
+        
+        {/* Algorithmic & Problem Solving Library */}
+        <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm mt-8">
+           <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+              <h3 className="text-2xl font-black flex items-center gap-2">
+                <Target className="w-6 h-6 text-emerald-500" /> Algorithmic Proof
+              </h3>
+           </div>
+
+           {/* Connection Input & Verification */}
+           <div className="flex flex-col gap-4 mb-8 bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm">
+              {verificationStep === 1 ? (
+                <div className="flex flex-col md:flex-row gap-3">
+                  <select 
+                    value={platformInput.platform} 
+                    onChange={(e) => setPlatformInput({...platformInput, platform: e.target.value})}
+                    className="p-4 rounded-xl border border-slate-200 font-bold outline-none focus:border-emerald-500 bg-white"
+                  >
+                    <option value="leetcode">LeetCode</option>
+                    <option value="codeforces">Codeforces</option>
+                    <option value="codechef">CodeChef</option>
+                    <option value="hackerrank">HackerRank</option>
+                  </select>
+                  <input 
+                    type="text" 
+                    placeholder="Enter Username" 
+                    value={platformInput.handle}
+                    onChange={(e) => setPlatformInput({...platformInput, handle: e.target.value})}
+                    className="flex-grow p-4 rounded-xl border border-slate-200 font-medium outline-none focus:border-emerald-500"
+                  />
+                  <Button 
+                    onClick={() => {
+                      if (!platformInput.handle) return;
+                      // Generate a unique 6-character hex code for this session
+                      const code = `EleWin-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                      setVerificationCode(code);
+                      setVerificationStep(2);
+                    }}
+                    disabled={!platformInput.handle}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold px-8 h-[56px]"
+                  >
+                    Initiate Link
+                  </Button>
+                </div>
+              ) : (
+                <div className="bg-emerald-50/50 border border-emerald-200 p-6 rounded-2xl animate-in fade-in zoom-in-95">
+                  <div className="flex items-start gap-4">
+                    <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-sm shrink-0">
+                      <ShieldCheck className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <div className="flex-grow">
+                      <h4 className="text-lg font-black text-slate-900 mb-1">Verify Ownership of @{platformInput.handle}</h4>
+                      <p className="text-sm text-slate-600 font-medium mb-4">
+                        To prove this is your account, please paste the code below into your <strong>{platformInput.platform === 'leetcode' ? 'About Me or Name' : platformInput.platform === 'codeforces' ? 'City or Organization' : 'Bio / About section'}</strong> on {platformInput.platform}.
+                      </p>
+                      
+                      <div className="flex items-center gap-3 mb-6">
+                        <code className="bg-white px-4 py-2 rounded-lg border border-slate-200 font-mono font-black text-lg text-slate-800 tracking-wider shadow-inner">
+                          {verificationCode}
+                        </code>
+                        <Button variant="outline" size="sm" className="h-10" onClick={() => {
+                          navigator.clipboard.writeText(verificationCode);
+                          toast({ title: "Copied to clipboard" });
+                        }}>Copy Code</Button>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <Button 
+                        onClick={async () => {
+  setIsLinkingPlatform(true);
+  try {
+    const res = await fetch("/api/coding-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...platformInput, verificationCode }) 
+    });
+    
+    // 1. Safely parse JSON without throwing a JS error
+    const data = await res.json().catch(() => ({ error: "Invalid server response." }));
+    
+    // 2. IF FAILED: Trigger the Toast immediately and STOP execution
+    if (!res.ok) {
+      console.log("Backend rejected verification:", data);
+      toast({ 
+        title: "Verification Failed", 
+        description: data.error || "Could not find the verification code on your profile.", 
+        variant: "destructive" 
+      });
+      setIsLinkingPlatform(false);
+      return; // <-- EXITS THE FUNCTION HERE
+    }
+
+    // 3. IF SUCCESSFUL: Update data using 'profile' (since we are in Passport)
+    const newProfiles = {
+      ...(profile?.codingProfiles || {}), 
+      [platformInput.platform]: { handle: platformInput.handle, stats: data.data, verifiedAt: new Date().toISOString() }
+    };
+    
+    if (user) {
+      await setDoc(doc(db, "users", user.uid), {
+        codingProfiles: newProfiles
+      }, { merge: true });
+    }
+    
+    // Refresh the passport data to show the new card
+    fetchPassportData(); 
+    
+    setPlatformInput({ platform: "leetcode", handle: "" });
+    setVerificationStep(1);
+    toast({ title: "Profile Verified & Linked!", description: "You can now remove the code from your profile." });
+    
+  } catch (e: any) {
+    // 4. This only catches complete network failures now
+    console.error("[CRITICAL NETWORK ERROR]", e);
+    toast({ 
+      title: "Connection Error", 
+      description: "Could not reach the verification server.", 
+      variant: "destructive" 
+    });
+  } finally { 
+    setIsLinkingPlatform(false); 
+  }
+}}
+                          disabled={isLinkingPlatform}
+                          className="bg-[#050A15] hover:bg-black text-white rounded-xl font-bold px-8"
+                        >
+                          {isLinkingPlatform ? <Loader2 className="w-4 h-4 animate-spin" /> : "I've added the code. Verify Now."}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setVerificationStep(1)} className="text-slate-500 font-bold hover:text-slate-900">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+           </div>
+
+           {/* Display Linked Profiles */}
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {profile?.codingProfiles?.leetcode && (
+                <div className="p-6 rounded-3xl border-2 border-emerald-100 bg-emerald-50/30 shadow-sm flex flex-col relative group">
+                   <button onClick={async () => {
+                      const updated = {...profile.codingProfiles};
+                      delete updated.leetcode;
+                      await setDoc(doc(db, "users", user!.uid), { codingProfiles: updated }, { merge: true });
+                      fetchPassportData();
+                   }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                   
+                   <p className="text-[10px] font-black uppercase text-emerald-600 tracking-widest mb-1">LeetCode</p>
+                   <h4 className="font-black text-xl text-slate-900 mb-4">@{profile.codingProfiles.leetcode.handle}</h4>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Problems Solved</p>
+                        <p className="text-2xl font-black text-emerald-600">{profile.codingProfiles.leetcode.stats.totalSolved}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Contest Rating</p>
+                        <p className="text-2xl font-black text-slate-900">{profile.codingProfiles.leetcode.stats.contestRating || "N/A"}</p>
+                      </div>
+                   </div>
+                   <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                     <ShieldCheck className="w-3 h-3" /> Verified
+                   </span>
+                </div>
+              )}
+
+              {profile?.codingProfiles?.codeforces && (
+                <div className="p-6 rounded-3xl border-2 border-blue-100 bg-blue-50/30 shadow-sm flex flex-col relative group">
+                   <button onClick={async () => {
+                      const updated = {...profile.codingProfiles};
+                      delete updated.codeforces;
+                      await setDoc(doc(db, "users", user!.uid), { codingProfiles: updated }, { merge: true });
+                      fetchPassportData();
+                   }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                   
+                   <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest mb-1">Codeforces</p>
+                   <h4 className="font-black text-xl text-slate-900 mb-4">@{profile.codingProfiles.codeforces.handle}</h4>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Current Rating</p>
+                        <p className="text-2xl font-black text-blue-600">{profile.codingProfiles.codeforces.stats.rating}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Rank</p>
+                        <p className="text-lg font-black text-slate-900 capitalize">{profile.codingProfiles.codeforces.stats.rank}</p>
+                      </div>
+                   </div>
+                   <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                     <ShieldCheck className="w-3 h-3" /> Verified
+                   </span>
+                </div>
+              )}
+              {profile?.codingProfiles?.codechef && (
+                <div className="p-6 rounded-3xl border-2 border-amber-100 bg-amber-50/30 shadow-sm flex flex-col relative group">
+                   <button onClick={async () => {
+                      const updated = {...profile.codingProfiles};
+                      delete updated.codechef;
+                      await setDoc(doc(db, "users", user!.uid), { codingProfiles: updated }, { merge: true });
+                      fetchPassportData();
+                   }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                   
+                   <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest mb-1">CodeChef</p>
+                   <h4 className="font-black text-xl text-slate-900 mb-4">@{profile.codingProfiles.codechef.handle}</h4>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Current Rating</p>
+                        <p className="text-2xl font-black text-amber-600">{profile.codingProfiles.codechef.stats.rating}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Division</p>
+                        <p className="text-xl font-black text-slate-900">{profile.codingProfiles.codechef.stats.stars}</p>
+                      </div>
+                   </div>
+                   <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                     <ShieldCheck className="w-3 h-3" /> Verified
+                   </span>
+                </div>
+              )}
+
+              {profile?.codingProfiles?.hackerrank && (
+                <div className="p-6 rounded-3xl border-2 border-green-100 bg-green-50/30 shadow-sm flex flex-col relative group">
+                   <button onClick={async () => {
+                      const updated = {...profile.codingProfiles};
+                      delete updated.hackerrank;
+                      await setDoc(doc(db, "users", user!.uid), { codingProfiles: updated }, { merge: true });
+                      fetchPassportData();
+                   }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                   
+                   <p className="text-[10px] font-black uppercase text-green-600 tracking-widest mb-1">HackerRank</p>
+                   <h4 className="font-black text-xl text-slate-900 mb-4">@{profile.codingProfiles.hackerrank.handle}</h4>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Level</p>
+                        <p className="text-2xl font-black text-green-600">Lvl {profile.codingProfiles.hackerrank.stats.level}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Title</p>
+                        <p className="text-lg font-black text-slate-900 capitalize truncate">{profile.codingProfiles.hackerrank.stats.title}</p>
+                      </div>
+                   </div>
+                   <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                     <ShieldCheck className="w-3 h-3" /> Verified
+                   </span>
+                </div>
+              )}
+           </div>
         </div>
 
         {/* --- OVERVIEW TAB --- */}

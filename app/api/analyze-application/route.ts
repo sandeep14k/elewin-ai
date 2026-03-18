@@ -458,26 +458,87 @@ function crossValidate(resume: any, github: any, requiredSkills: string[]) {
 // ==========================================
 // 5. MATH ENGINES
 // ==========================================
-function calculateLearningVelocity(github: any): "High" | "Average" | "Low" {
-  if (!github || !github.repos || github.repos.length < 2) return "Average";
-  const repos = github.repos.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+function calculateLearningPotential(github: any) {
+  console.log('\n--- [LPI ENGINE: CALCULATING LEARNING POTENTIAL] ---');
+
+  if (!github || !github.repos || github.repos.length === 0) {
+    console.log('[LPI] No GitHub repos found. Returning baseline 0.');
+    return { score: 0, label: "Unknown", timeline: [], details: "Not enough GitHub data to calculate potential." };
+  }
+
+  console.log(`[LPI] Analyzing ${github.repos.length} repositories for tech adoption timeline...`);
+
+  // FIX: Safely parse dates during sorting. If missing, default to 0.
+  const repos = github.repos.sort((a: any, b: any) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateA - dateB;
+  });
   
-  let languageProgression = 0;
+  let languageProgressionScore = 0;
   let previousLanguages = new Set<string>();
+  const timeline: any[] = [];
   
   for (const repo of repos) {
-    const currentLanguages = new Set<string>(repo.languages.map((l: any) => l.name as string));
-    const newLanguages = [...currentLanguages].filter((l: string) => !previousLanguages.has(l)).length;
-    languageProgression += newLanguages;
+    // Safely map languages in case the array is empty/undefined
+    const currentLanguages = new Set<string>(repo.languages?.map((l: any) => l.name) || []);
+    
+    // Find languages in this repo that the candidate hasn't used in previous repos
+    const newTech = [...currentLanguages].filter(l => !previousLanguages.has(l));
+    
+    // FIX: Create a safe date string. Fallback to current date if missing.
+    const safeDate = repo.createdAt ? new Date(repo.createdAt).toISOString() : new Date().toISOString();
+    
+    if (newTech.length > 0) {
+        console.log(`[LPI] Repo '${repo.name}' (${safeDate.split('T')[0]}): Adopted -> ${newTech.join(', ')}`);
+    }
+
+    // Add 15 points for every new technology adopted
+    languageProgressionScore += newTech.length * 15; 
+    
+    // Only add to the visual timeline if it's a major event (new tech or heavy commits)
+    if (newTech.length > 0 || repo.commitCount > 10) {
+      timeline.push({
+        date: safeDate.split('T')[0].slice(0, 7), // Format: YYYY-MM
+        repo: repo.name,
+        newTech: newTech,
+        commits: repo.commitCount || 0,
+        hasCI: repo.hasCICD || false
+      });
+    }
+    
     previousLanguages = new Set([...previousLanguages, ...currentLanguages]);
   }
   
+  // Calculate recent activity momentum
   const commitActivity = repos.flatMap((r: any) => r.commitMessages?.length || 0);
-  const commitTrend = commitActivity.length > 1 ? commitActivity[commitActivity.length - 1] / commitActivity[0] : 1;
-  const score = languageProgression * 0.5 + commitTrend * 50;
-  return score > 30 ? "High" : (score > 10 ? "Average" : "Low");
-}
+  const commitTrend = commitActivity.length > 1 ? commitActivity[commitActivity.length - 1] / (commitActivity[0] || 1) : 1;
+  const trendBonus = Math.min(commitTrend * 10, 30); // Cap trend bonus at 30
+  
+  // Bonus for adopting CI/CD (shows maturity growth)
+  const ciBonus = repos.some((r:any) => r.hasCICD) ? 15 : 0;
 
+  const rawScore = Math.min(languageProgressionScore + trendBonus + ciBonus, 100);
+  
+  let label = "Average";
+  if (rawScore >= 80) label = "Exceptional Learner";
+  else if (rawScore >= 60) label = "High Velocity";
+  else if (rawScore < 30) label = "Static Skillset";
+
+  console.log(`[LPI] Language Progression Score: ${languageProgressionScore}`);
+  console.log(`[LPI] Commit Trend Bonus: ${trendBonus.toFixed(2)}`);
+  console.log(`[LPI] CI/CD Bonus: ${ciBonus}`);
+  console.log(`[LPI] Final Raw LPI Score: ${rawScore}/100 (${label})`);
+  console.log('-----------------------------------------------------\n');
+
+  return {
+    score: Math.round(rawScore),
+    label,
+    // Return the last 5 major milestones for the UI timeline chart
+    timeline: timeline.slice(-5), 
+    details: `Adopted ${previousLanguages.size} distinct technologies. ${ciBonus ? 'Demonstrated growth into DevOps/CI.' : ''}`
+  };
+}
 function calculateExperienceScore(workExperience: any[], aiRawExperienceQuality: number): number {
   if (!workExperience || workExperience.length === 0) return 0;
   
@@ -564,7 +625,7 @@ function calculateSkillsScore(requiredSkills: string[], skillEvidence: any): num
   
   const maxPossible = requiredSkills.length * 1.5;
   const skillsRatio = requiredSkills.length > 0 ? (skillsSubtotal / maxPossible) : 1; 
-  return (skillsRatio * 100) * 0.30;
+  return (skillsRatio * 100) * 0.25;
 }
 function generateSkillGraph(github: any): Record<string, number> {
   const defaultGraph = { frontend: 0, backend: 0, database: 0, devops: 0, architecture: 0 };
@@ -584,6 +645,33 @@ function generateSkillGraph(github: any): Record<string, number> {
   const normalize = (v: number) => Math.min(100, Math.round((v / total) * 100)) || 0;
   return { frontend: normalize(fScore), backend: normalize(bScore), database: normalize(dScore), devops: normalize(doScore), architecture: normalize(aScore) };
 }
+function calculateAlgorithmicScore(codingProfiles: any, aiRawAlgorithmicQuality: number): number {
+  if (!codingProfiles || Object.keys(codingProfiles).length === 0) return 0;
+
+  let mathScore = 0;
+  
+  if (codingProfiles.leetcode) {
+    const solved = codingProfiles.leetcode.stats?.totalSolved || 0;
+    mathScore += Math.min((solved / 400) * 100, 100); 
+  }
+  if (codingProfiles.codeforces) {
+    const rating = codingProfiles.codeforces.stats?.rating || 0;
+    mathScore += Math.min((Math.max(rating - 800, 0) / 1000) * 100, 100); 
+  }
+  if (codingProfiles.codechef) {
+     const rating = codingProfiles.codechef.stats?.rating || 0;
+     mathScore += Math.min((Math.max(rating - 1000, 0) / 1000) * 100, 100);
+  }
+  if (codingProfiles.hackerrank) {
+     const level = codingProfiles.hackerrank.stats?.level || 0;
+     mathScore += Math.min((level / 6) * 100, 100);
+  }
+
+  const computedScore = Math.min(mathScore, 100);
+
+  // Math counts for 70%, AI's interpretation counts for 30%. Worth 10% of total score.
+  return (computedScore * 0.7 + aiRawAlgorithmicQuality * 0.3) * 0.10; 
+}
 
 // ==========================================
 // 6. AI PROMPT
@@ -598,6 +686,7 @@ You will receive a "Project Audit" array. You MUST cross-reference the candidate
 You must produce a JSON object with the following exact structure:
 - executive_summary: A punchy, 3-sentence summary of the candidate's actual capability vs. claimed capability. Note any major exaggerations here.
 - skill_verification: { skill: string, found_in_resume: boolean, found_in_github: boolean, evidence: string }[]
+- rawAlgorithmicQuality: A score (0-100) evaluating problem-solving skills based strictly on provided LeetCode, Codeforces, or HackerRank stats.
 - rawExperienceQuality: A score (0-100) evaluating if the claimed years of experience match their GitHub commit history and code complexity.
 - rawProjectsQuality: A score (0-100) evaluating the true complexity of their personal projects based ONLY on the Project Audit data.
 - rawAcademicsQuality: A score (0-100) evaluating their academic background.
@@ -614,6 +703,8 @@ You must produce a JSON object with the following exact structure:
     version_control_habits: number // 0-100
   }
 - audit_trail: An array of 3-5 strings detailing specific, concrete observations (e.g., "Candidate claimed to build a React Native app, but the verified repo only contains a basic README.").
+- skills_ontology: { core_nodes: string[], inferred_nodes: string[] } // <-- NEW: core_nodes are verified (e.g., Next.js, Postgres), inferred_nodes are implied capabilities (e.g., SSR, Relational DBs).
+- career_copilot_roadmap: string[]
 `;
 
 
@@ -658,8 +749,8 @@ export async function POST(req: Request) {
     }
 
     const validation = crossValidate(candidateBlocks, githubData, jobData.requiredSkills);
-    const learningVelocity = calculateLearningVelocity(githubData);
-   
+    const learningPotential = calculateLearningPotential(githubData);   
+
     console.log(`\n--- [SENDING TO AI: PROJECT AUDIT PAYLOAD] ---`);
     console.log(JSON.stringify(validation.projectAudits, null, 2));
     console.log(`-----------------------------------------------\n`);
@@ -669,7 +760,7 @@ export async function POST(req: Request) {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `JD Required Skills: ${jobData.requiredSkills.join(", ")}\n\nProject Audits (Claim vs Reality): ${JSON.stringify(validation.projectAudits, null, 2)}\n\nCandidate Data: ${JSON.stringify({ blocks: candidateBlocks, github: githubData || "No GitHub Data", validation: validation.skillEvidence }, null, 2)}` },
+        { role: "user", content: `JD Required Skills: ${jobData.requiredSkills.join(", ")}\n\nProject Audits (Claim vs Reality): ${JSON.stringify(validation.projectAudits, null, 2)}\n\nCandidate Data: ${JSON.stringify({ blocks: candidateBlocks, github: githubData || "No GitHub Data", validation: validation.skillEvidence, codingProfiles: candidateBlocks?.codingProfiles || "No Profiles" }, null, 2)}` },
       ],
       temperature: 0.1,
     });
@@ -677,37 +768,52 @@ export async function POST(req: Request) {
     const aiRaw = JSON.parse(completion.choices[0].message.content || "{}");
     
     const finalSkillsScore = calculateSkillsScore(jobData.requiredSkills, validation.skillEvidence);
-    const finalGithubScore = (aiRaw.rawGithubQuality || 0) * 0.25;
+    const finalGithubScore = (aiRaw.rawGithubQuality || 0) * 0.20;
     const finalExperienceScore = calculateExperienceScore(candidateBlocks?.workExperience, aiRaw.rawExperienceQuality || 0);
     const finalProjectsScore = calculateProjectsScore(candidateBlocks?.projects, aiRaw.rawProjectsQuality || 0);
     const finalAcademicsScore = calculateAcademicsScore(candidateBlocks?.education, aiRaw.rawAcademicsQuality || 0);
-    const velocityPoints = learningVelocity === "High" ? 5 : (learningVelocity === "Average" ? 3 : 1);
+    const finalAlgorithmicScore = calculateAlgorithmicScore(candidateBlocks?.codingProfiles, aiRaw.rawAlgorithmicQuality || 0);
+    const velocityPoints = Math.round((learningPotential.score / 100) * 5); // Max 5 points
     
     const finalMatchScore = Math.round(
       finalSkillsScore + finalGithubScore + finalExperienceScore + 
-      finalProjectsScore + finalAcademicsScore + velocityPoints
+      finalProjectsScore + finalAcademicsScore + finalAlgorithmicScore + velocityPoints
     );
      console.log(`\n--- [DETAILED FORENSIC SCORECARD] ---`);
     console.log(`Target Role: ${jobData.title}`);
     console.log(`Candidate: ${appData.candidateName}`);
     console.log(`-------------------------------------`);
-    console.log(`✅ Skills Match (30%):    ${finalSkillsScore.toFixed(2)}/30`);
-    console.log(`💻 GitHub Quality (25%): ${finalGithubScore.toFixed(2)}/25 (AI Rating: ${aiRaw.rawGithubQuality})`);
+    console.log(`✅ Skills Match (25%):    ${finalSkillsScore.toFixed(2)}/25`); 
+    console.log(`💻 GitHub Quality (20%): ${finalGithubScore.toFixed(2)}/20 (AI Rating: ${aiRaw.rawGithubQuality})`); 
+    console.log(`🧠 Algorithmic (10%):    ${finalAlgorithmicScore.toFixed(2)}/10`);
     console.log(`💼 Experience (20%):     ${finalExperienceScore.toFixed(2)}/20`);
     console.log(`🚀 Project Proof (15%):  ${finalProjectsScore.toFixed(2)}/15`);
     console.log(`🎓 Academics (5%):       ${finalAcademicsScore.toFixed(2)}/5`);
-    console.log(`⚡ Learning Velocity:    ${velocityPoints}/5 (${learningVelocity})`);
+    console.log(`📈 Learning Potential:   ${velocityPoints}/5 (${learningPotential.score}/100 LPI)`); // <-- Updated log
     console.log(`-------------------------------------`);
     console.log(`🏆 TOTAL SCORE:           ${finalMatchScore}/100`);
     console.log(`-------------------------------------\n`);
     const skillGraph = generateSkillGraph(githubData);
-    const isHiddenGem = finalMatchScore >= 80;
+    const traditionalPedigreeScore = finalExperienceScore + finalAcademicsScore;
+    const lacksTraditionalPedigree = traditionalPedigreeScore < 10; // Less than 40% on standard resume metrics
+    
+    // 2. Proof of Work Check (GitHub + Algorithms + LPI)
+    // Max GitHub is 20, Max Algo is 10. LPI is out of 100.
+    const hasEliteProofOfWork = (finalGithubScore >= 16) || (finalAlgorithmicScore >= 8) || (learningPotential.score >= 85);
+
+    // True "Hidden Gem" = Invisible to standard ATS + Elite capability
+    const isHiddenGem = lacksTraditionalPedigree && hasEliteProofOfWork;
+
+    if (isHiddenGem) {
+      console.log(`💎 HIDDEN GEM DETECTED: Pedigree (${traditionalPedigreeScore.toFixed(1)}/25) | Elite PoW: YES`);
+    }
 
     // 👇 THE FIX: SANITIZE 'UNDEFINED' VALUES FOR FIREBASE 👇
     const sanitizedAnalysisData = JSON.parse(JSON.stringify({
       overallMatchScore: finalMatchScore,
       authenticityScore: aiRaw.authenticityScore || 0,
-      learningVelocity,
+      learningPotential, // <-- ADD THIS: The rich LPI object with the timeline
+      learningVelocity: learningPotential.label,
       // Map 'executive_summary' from AI to 'aiSummary' expected by your UI
       aiSummary: aiRaw.executive_summary || aiRaw.aiSummary || "Forensic analysis complete.",
       weightedBreakdown: {
@@ -716,6 +822,7 @@ export async function POST(req: Request) {
          experience: Math.round(finalExperienceScore),
          projects: Math.round(finalProjectsScore),
          academics: Math.round(finalAcademicsScore),
+         algorithmic: Math.round(finalAlgorithmicScore),
          velocity: velocityPoints
       },
       // Safely pass the forensic graph to the UI Radar chart!
@@ -723,6 +830,8 @@ export async function POST(req: Request) {
         language_mastery: 0, code_hygiene_and_testing: 0, system_architecture: 0,
         devops_and_infra: 0, data_and_state: 0, version_control_habits: 0
       },
+      skills_ontology: aiRaw.skills_ontology || { core_nodes: [], inferred_nodes: [] }, // <-- ADD THIS
+      career_copilot_roadmap: aiRaw.career_copilot_roadmap || [],
       skillGraph, // legacy fallback
       audit_trail: aiRaw.audit_trail || validation.flags,
       verifiedSkills: validation.verifiedSkills,

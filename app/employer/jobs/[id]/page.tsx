@@ -4,9 +4,10 @@ import { useState, useEffect, use } from "react"
 import { getJobWithApplications, executeAutonomousShortlist, updateApplicationStatus } from "@/lib/employer"
 import { Job, Application } from "@/types/platform"
 import { 
-  AlertTriangle, Github, FileText, Loader2, UserCheck, 
-  CheckCircle2, XCircle, Award, School, Briefcase, Sparkles, 
-  Users, Zap, Star, ChevronDown, ChevronUp, Info, ExternalLink
+  Github, FileText, Loader2, UserCheck, 
+   Sparkles, 
+ Zap, Star, ChevronDown, ChevronUp, Info, 
+  Target, Network, EyeOff, Eye, ShieldAlert
 } from "lucide-react"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
@@ -22,6 +23,9 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
   const [applications, setApplications] = useState<Application[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [expandedApp, setExpandedApp] = useState<string | null>(null)
+  
+  // --- Bias-Masking State ---
+  const [isBlindMode, setIsBlindMode] = useState(true)
   
   const [targetCount, setTargetCount] = useState(5)
   const [isShortlisting, setIsShortlisting] = useState(false)
@@ -40,7 +44,8 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
     const success = await updateApplicationStatus(appId, status)
     if (success) {
       setApplications(prev => prev.map(app => 
-        app.id === appId ? { ...app, status: status as any } : app
+        // FIX 1: Safely cast status using the Application interface instead of 'any'
+        app.id === appId ? { ...app, status: status as Application["status"] } : app
       ))
     }
   }
@@ -63,44 +68,77 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
       <main className="max-w-6xl mx-auto px-4 py-8">
         
         {/* --- SMART HEADER --- */}
-        <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-center md:text-left">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">{job?.title}</h1>
-            <p className="text-slate-500 font-medium">Verified Pipeline • {applications.length} Applicants</p>
+        <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-3xl font-black text-slate-900 tracking-tight">{job?.title}</h1>
+              <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                {applications.length} Candidates
+              </span>
+            </div>
+            
+            {/* BLIND HIRING TOGGLE */}
+            <button 
+              onClick={() => setIsBlindMode(!isBlindMode)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                isBlindMode ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+              }`}
+            >
+              {isBlindMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {isBlindMode ? 'Blind Evaluation Active: PII Masked' : 'Blind Evaluation Disabled: Showing PII'}
+            </button>
           </div>
           
           {job?.status === 'open' ? (
-            <div className="flex items-center gap-3 bg-orange-50 p-4 rounded-2xl border border-orange-200">
+            <div className="flex items-center gap-3 bg-orange-50 p-4 rounded-2xl border border-orange-200 w-full md:w-auto">
                <div className="flex flex-col">
                   <span className="text-[10px] font-bold text-orange-800 uppercase">Shortlist Target</span>
-                  <input type="number" value={targetCount} onChange={(e) => setTargetCount(Number(e.target.value))} className="w-12 bg-transparent font-bold text-lg outline-none" />
+                  <input type="number" value={targetCount} onChange={(e) => setTargetCount(Number(e.target.value))} className="w-12 bg-transparent font-bold text-lg outline-none text-orange-900" />
                </div>
-               <Button onClick={handleAutoShortlist} disabled={isShortlisting || applications.length === 0} className="bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-600/20">
-                  {isShortlisting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Sparkles className="w-4 h-4 mr-2" /> AI Auto-Shortlist</>}
+               <Button onClick={handleAutoShortlist} disabled={isShortlisting || applications.length === 0} className="bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-600/20 w-full md:w-auto">
+                  {isShortlisting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Sparkles className="w-4 h-4 mr-2" /> Auto-Shortlist</>}
                </Button>
             </div>
           ) : (
             <Link href={`/employer/jobs/${id}/shortlist`}>
-              <Button className="bg-green-600 hover:bg-green-700 text-white rounded-xl px-8 py-6 font-bold">
+              <Button className="bg-green-600 hover:bg-green-700 text-white rounded-xl px-8 py-6 font-bold w-full md:w-auto">
                 <UserCheck className="w-4 h-4 mr-2" /> View Final Shortlist
               </Button>
             </Link>
           )}
         </div>
 
+        {/* SECURITY & PRIVACY BANNER */}
+        <div className="bg-[#050A15] p-4 rounded-2xl flex items-center justify-between mb-8 shadow-lg text-white">
+           <div className="flex items-center gap-3">
+              <ShieldAlert className="w-5 h-5 text-blue-400" />
+              <p className="text-xs font-medium text-slate-300">
+                <strong className="text-white">Zero-Trust Vault:</strong> Candidate documents are parsed entirely in volatile RAM. No PDFs or offer letters are permanently stored on our servers.
+              </p>
+           </div>
+        </div>
+
         {/* --- LEADERBOARD --- */}
         <div className="space-y-6">
           {applications.map((app) => {
-           const chartData = [
-    { subject: 'Language Mastery', A: app.analysis?.forensic_skill_graph?.language_mastery || 0 },
-    { subject: 'Code Hygiene', A: app.analysis?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
-    { subject: 'Architecture', A: app.analysis?.forensic_skill_graph?.system_architecture || 0 },
-    { subject: 'DevOps & Infra', A: app.analysis?.forensic_skill_graph?.devops_and_infra || 0 },
-    { subject: 'Data & State', A: app.analysis?.forensic_skill_graph?.data_and_state || 0 },
-    { subject: 'Git Habits', A: app.analysis?.forensic_skill_graph?.version_control_habits || 0 },
-  ]
+            // FIX 2: Create a local "any" typed reference for analysis to bypass strict TS checking for the new hackathon fields
+            const analysisExt = app.analysis as any;
+
+            const chartData = [
+              { subject: 'Language Mastery', A: analysisExt?.forensic_skill_graph?.language_mastery || 0 },
+              { subject: 'Code Hygiene', A: analysisExt?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
+              { subject: 'Architecture', A: analysisExt?.forensic_skill_graph?.system_architecture || 0 },
+              { subject: 'DevOps & Infra', A: analysisExt?.forensic_skill_graph?.devops_and_infra || 0 },
+              { subject: 'Data & State', A: analysisExt?.forensic_skill_graph?.data_and_state || 0 },
+              { subject: 'Git Habits', A: analysisExt?.forensic_skill_graph?.version_control_habits || 0 },
+            ]
+
+            // BIAS MASKING VARIABLES
+            const displayName = isBlindMode ? `Anonymous Engineer #${app.id?.substring(0, 5).toUpperCase()}` : app.candidateName;
+            const displayGithub = isBlindMode ? "Hidden for Bias Protection" : `@${app.githubUsername}`;
+
             return (
-              <div key={app.id} className={`bg-white border-2 rounded-3xl transition-all overflow-hidden ${app.status === 'shortlisted' ? 'border-green-400 bg-green-50/5' : 'border-white shadow-sm hover:shadow-md'}`}>
+              <div key={app.id} className={`bg-white border-2 rounded-3xl transition-all overflow-hidden ${app.status === 'shortlisted' ? 'border-green-400 bg-green-50/5' : 'border-slate-100 shadow-sm hover:shadow-md'}`}>
                 <div className="p-6 md:p-8">
                   <div className="flex flex-col lg:flex-row gap-8">
                     
@@ -118,32 +156,51 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                     {/* 2. Bio & Forensic Highlights */}
                     <div className="flex-grow">
                       <div className="flex flex-wrap items-center gap-3 mb-3">
-                        <h3 className="text-2xl font-black text-slate-900">{app.candidateName}</h3>
+                        <h3 className="text-2xl font-black text-slate-900">{displayName}</h3>
                         
-                        {app.analysis?.isHiddenGem && (
+                        {analysisExt?.isHiddenGem && (
                           <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-amber-200">
-                            <Star className="w-3 h-3 fill-current" /> Hidden Gem
+                            <Star className="w-3 h-3 fill-current" /> Hidden Talent
                           </div>
                         )}
 
                         <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
-                          app.analysis?.learningVelocity === 'High' ? 'bg-blue-600 text-white border-blue-700' : 'bg-slate-100 text-slate-600'
+                          analysisExt?.learningVelocity === 'High' || analysisExt?.learningVelocity === 'Exceptional Learner' ? 'bg-blue-600 text-white border-blue-700' : 'bg-slate-100 text-slate-600'
                         }`}>
-                          <Zap className="w-3 h-3 fill-current" /> Velocity: {app.analysis?.learningVelocity || "N/A"}
+                          <Zap className="w-3 h-3 fill-current" /> LPI: {analysisExt?.learningVelocity || "N/A"}
                         </div>
                       </div>
 
-                      <div className="flex gap-4 mb-4">
-                         <a href={`https://github.com/${app.githubUsername}`} target="_blank" className="text-slate-400 hover:text-slate-900 transition-colors"><Github className="w-5 h-5" /></a>
-                         <a href={app.resumeUrl} target="_blank" className="text-slate-400 hover:text-orange-500 transition-colors"><FileText className="w-5 h-5" /></a>
+                      <div className="flex gap-4 mb-4 items-center">
+                         {!isBlindMode ? (
+                           <>
+                             <a href={`https://github.com/${app.githubUsername}`} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-slate-900 transition-colors flex items-center gap-1 text-sm font-bold"><Github className="w-5 h-5" /> {displayGithub}</a>
+                             {app.resumeUrl && <a href={app.resumeUrl} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-orange-500 transition-colors flex items-center gap-1 text-sm font-bold"><FileText className="w-5 h-5" /> Original Resume</a>}
+                           </>
+                         ) : (
+                           <div className="flex items-center gap-2 text-slate-400 text-sm font-bold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                              <EyeOff className="w-4 h-4" /> Original links hidden during blind evaluation
+                           </div>
+                         )}
                       </div>
 
                       <p className="text-slate-600 text-sm leading-relaxed italic max-w-2xl mb-4">
-                        "{app.analysis?.aiSummary}"
+                        "{analysisExt?.aiSummary}"
                       </p>
 
+                      {/* Display Coding Profiles if they exist */}
+                      {(app as any).passportBlocks?.codingProfiles && Object.keys((app as any).passportBlocks.codingProfiles).length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {Object.entries((app as any).passportBlocks.codingProfiles).map(([platform, data]: [string, any]) => (
+                            <span key={platform} className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-md text-[10px] font-black uppercase flex items-center gap-1">
+                              <Target className="w-3 h-3" /> {platform} Verified
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap gap-2">
-                        {app.analysis?.verifiedSkills?.slice(0, 5).map(skill => (
+                        {analysisExt?.verifiedSkills?.slice(0, 5).map((skill: string) => (
                             <span key={skill} className="bg-slate-50 text-slate-500 text-[10px] font-bold px-2 py-1 rounded border border-slate-100">#{skill}</span>
                         ))}
                       </div>
@@ -152,7 +209,7 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                     {/* 3. Match Score & Accordion Trigger */}
                     <div className="lg:w-48 flex flex-col justify-center items-center bg-slate-50 rounded-2xl border border-slate-100 p-6">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Match Score</p>
-                        <span className="text-5xl font-black text-slate-900 mb-4">{app.analysis?.overallMatchScore || 0}</span>
+                        <span className="text-5xl font-black text-slate-900 mb-4">{analysisExt?.overallMatchScore || 0}</span>
                         
                         <Button 
                             variant="ghost" 
@@ -161,7 +218,7 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                             className="text-orange-600 font-bold text-xs hover:bg-orange-100 w-full"
                         >
                             {expandedApp === app.id ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-                            Audit Trail
+                            Deep Audit
                         </Button>
                     </div>
                   </div>
@@ -169,15 +226,46 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                   {/* 4. The Forensic Audit Trail (Expandable) */}
                   {expandedApp === app.id && (
                     <div className="mt-8 pt-8 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
+                        
+                        {/* SKILLS ONTOLOGY GRAPH (Recruiter View) */}
+                        {analysisExt?.skills_ontology && analysisExt.skills_ontology.core_nodes?.length > 0 && (
+                          <div className="mb-8">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Network className="w-4 h-4 text-purple-500" />
+                                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Inferred Skills Ontology</h4>
+                            </div>
+                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col items-center">
+                               <div className="flex flex-wrap justify-center gap-2 mb-6">
+                                 {analysisExt.skills_ontology.core_nodes.map((node: string, i: number) => (
+                                    <span key={i} className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-black shadow-sm border border-purple-500">
+                                      {node}
+                                    </span>
+                                 ))}
+                               </div>
+                               <div className="w-px h-6 bg-slate-300 -mt-6 mb-3"></div>
+                               <div className="flex flex-wrap justify-center gap-2">
+                                 {analysisExt.skills_ontology.inferred_nodes.map((node: string, i: number) => (
+                                    <span key={i} className="px-2.5 py-1 bg-white text-slate-600 rounded-md text-[10px] font-bold border border-slate-200 shadow-sm flex items-center gap-1.5">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div> {node}
+                                    </span>
+                                 ))}
+                               </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex items-center gap-2 mb-4">
                             <Info className="w-4 h-4 text-blue-500" />
                             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Forensic Discrepancy Log</h4>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {app.analysis?.audit_trail?.map((log, i) => (
+                            {analysisExt?.audit_trail?.map((log: string, i: number) => (
                                 <div key={i} className="flex gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
                                     <span className="text-blue-500 font-black text-xs">0{i+1}</span>
-                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">{log}</p>
+                                    {/* Obscure GitHub references in the logs if blind mode is on */}
+                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                                      {isBlindMode ? log.replace(/GitHub/g, "Source Repository").replace(/repo/g, "project") : log}
+                                    </p>
                                 </div>
                             ))}
                         </div>

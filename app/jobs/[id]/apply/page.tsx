@@ -7,13 +7,14 @@ import { Job } from "@/types/platform"
 import { useRouter } from "next/navigation"
 import { signInWithPopup, GithubAuthProvider, getAdditionalUserInfo, linkWithPopup, signInWithCredential } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
-import { doc, getDoc } from "firebase/firestore"
+import { doc, getDoc, setDoc } from "firebase/firestore"
 import { 
   Briefcase, Github, FileText, Loader2, UploadCloud,
   Sparkles, CheckCircle2, Copy, ExternalLink, 
   AlertTriangle, Link as LinkIcon, Lock, ShieldCheck, ChevronRight, Mail, Trash2, Fingerprint,
   School, X, Info, Trophy, LayoutGrid,
-  Code2, EyeOff
+  Code2, EyeOff,
+  Target
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -36,7 +37,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [parsedBlocks, setParsedBlocks] = useState<any>(null)
   const [passportData, setPassportData] = useState<any>(null)
 
-  // --- NEW: File Upload & GitHub Auth State ---
+  // --- File Upload & GitHub Auth State ---
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [isGithubConnected, setIsGithubConnected] = useState(false)
 
@@ -48,12 +49,18 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [otpStep, setOtpStep] = useState<"request" | "verify">("request")
   const [isProcessingOtp, setIsProcessingOtp] = useState(false)
 
+  // Coding Profile States
+  const [platformInput, setPlatformInput] = useState({ platform: "leetcode", handle: "" })
+  const [isLinkingPlatform, setIsLinkingPlatform] = useState(false)
+  const [verificationStep, setVerificationStep] = useState<1 | 2>(1);
+  const [verificationCode, setVerificationCode] = useState("");
+
   const [formData, setFormData] = useState({
     candidateName: "",
     candidateEmail: "",
     resumeUrl: "",
     githubUsername: "",
-    githubToken: "" // NEW: Store the GitHub token securely in state
+    githubToken: ""
   })
 
   const calculateDuration = (start: string, end: string) => {
@@ -74,44 +81,50 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     const loadJobAndUser = async () => {
-      const jobData = await getJobById(id)
-      setJob(jobData)
-      setIsLoadingJob(false)
-      
-      if (user) {
-        const userDocSnap = await getDoc(doc(db, "users", user.uid));
-        if (userDocSnap.exists()) {
-           const uData = userDocSnap.data();
-           
-           setFormData(prev => ({ 
-             ...prev, 
-             candidateName: uData.name || "", 
-             candidateEmail: uData.email || "", 
-             githubUsername: uData.githubUsername || "", 
-             // 🔥 NEW: Pull the token silently from the database!
-             githubToken: uData.githubToken || "" 
-           }))
-           
-           // 🔥 Auto-lock the GitHub UI if already verified in their Passport
-           if (uData.githubUsername && uData.githubToken) {
-             setIsGithubConnected(true)
-           }
-
-           if (uData.experienceLibrary || uData.projectsLibrary) {
-              setPassportData({ 
-                workExperience: uData.experienceLibrary || [], 
-                projects: uData.projectsLibrary || [], 
-                education: uData.academicsLibrary || [], 
-                skills: uData.savedSkills || [] 
-              })
-           }
+      try {
+        const jobData = await getJobById(id)
+        if (!jobData) {
+          toast({ title: "Error", description: "Job not found or has been removed.", variant: "destructive" });
         }
+        setJob(jobData)
+        
+        if (user) {
+          const userDocSnap = await getDoc(doc(db, "users", user.uid));
+          if (userDocSnap.exists()) {
+             const uData = userDocSnap.data();
+             
+             setFormData(prev => ({ 
+               ...prev, 
+               candidateName: uData.name || "", 
+               candidateEmail: uData.email || "", 
+               githubUsername: uData.githubUsername || "", 
+               githubToken: uData.githubToken || "" 
+             }))
+             
+             if (uData.githubUsername && uData.githubToken) {
+               setIsGithubConnected(true)
+             }
+  
+             if (uData.experienceLibrary || uData.projectsLibrary) {
+                setPassportData({ 
+                  workExperience: uData.experienceLibrary || [], 
+                  projects: uData.projectsLibrary || [], 
+                  education: uData.academicsLibrary || [], 
+                  skills: uData.savedSkills || [] ,
+                  codingProfiles: uData.codingProfiles || null
+                })
+             }
+          }
+        }
+      } catch (error: any) {
+        toast({ title: "Failed to load data", description: error.message, variant: "destructive" });
+      } finally {
+        setIsLoadingJob(false)
       }
     }
     loadJobAndUser()
-  }, [id, user])
+  }, [id, user, toast])
 
-  // --- NEW: Secure GitHub OAuth Handler ---
  const handleConnectGithub = async () => {
     try {
       const provider = new GithubAuthProvider()
@@ -122,17 +135,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       
       if (user) {
         try {
-          // Attempt to link the GitHub account to the current guest/email session
           result = await linkWithPopup(auth.currentUser!, provider)
         } catch (linkError: any) {
           if (linkError.code === 'auth/credential-already-in-use') {
-             console.log("GitHub already registered. Extracting credential...");
-             
-             // 🔥 THE FIX: Extract the secure credential from the failed attempt
              const credential = GithubAuthProvider.credentialFromError(linkError);
-             
              if (credential) {
-               // Sign them in silently without triggering browser popup blockers!
                result = await signInWithCredential(auth, credential);
              } else {
                throw linkError; 
@@ -142,11 +149,9 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
           }
         }
       } else {
-        // Normal sign-in for completely logged-out users
         result = await signInWithPopup(auth, provider)
       }
       
-      // Extract the secure GitHub Access Token
       const credential = GithubAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken;
       
@@ -163,8 +168,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         toast({ title: "Identity Verified!", description: `Successfully connected as @${verifiedUsername}` })
       }
     } catch (error: any) {
-      console.error("GitHub Auth Error:", error)
-      
       if (error.code === 'auth/account-exists-with-different-credential') {
         toast({ 
           title: "Email Conflict", 
@@ -181,10 +184,9 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     }
   }
 
-  // --- UPDATED: Merge Job-Specific Parse with Passport Data ---
   const handleLiveParse = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!job) return
+    if (!job) return toast({ title: "Error", description: "Job details are missing.", variant: "destructive" });
 
     if (!isGithubConnected) {
       return toast({ title: "Verification Required", description: "Please connect your GitHub account to proceed.", variant: "destructive" });
@@ -206,10 +208,13 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       })
       const data = await response.json()
       
+      if (!response.ok) {
+        throw new Error(data.error || data.details || "Failed to process document.");
+      }
+      
       if (data.structured) {
         let finalBlocks = data.structured;
 
-        // If Passport exists, intelligently merge the arrays to prevent duplicates
         if (passportData) {
           const existingExp = new Set((passportData.workExperience || []).map((e: any) => `${e.title}-${e.company}`.toLowerCase()));
           const newExp = (data.structured.workExperience || []).filter((e: any) => !existingExp.has(`${e.title}-${e.company}`.toLowerCase()));
@@ -221,16 +226,19 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             ...data.structured,
             workExperience: [...(passportData.workExperience || []), ...newExp],
             projects: [...(passportData.projects || []), ...newProj],
-            education: data.structured.education?.length > 0 ? data.structured.education : (passportData.education || [])
+            education: data.structured.education?.length > 0 ? data.structured.education : (passportData.education || []),
+            codingProfiles: passportData.codingProfiles || null
           };
           toast({ title: "Data Merged", description: "Verified Passport records appended to job-specific resume." });
         }
 
         setParsedBlocks(finalBlocks)
         setStep(2)
-      } else { throw new Error("Parse failed") }
-    } catch (error) {
-      toast({ title: "Extraction Failed", description: "PDF could not be analyzed.", variant: "destructive" })
+      } else { 
+        throw new Error(data.raw || "Failed to extract structured data from resume.") 
+      }
+    } catch (error: any) {
+      toast({ title: "Extraction Failed", description: error.message || "PDF could not be analyzed.", variant: "destructive" })
     } finally { setIsParsing(false) }
   }
 
@@ -266,14 +274,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setOtpStep("verify");
         toast({ title: "Company Identity Validated", description: "OTP sent to verified work domain." });
       } else {
-        toast({ 
-          title: "Invalid Company Email", 
-          description: data.error || `The email you entered does not appear to be an official work email for ${companyName}.`, 
-          variant: "destructive" 
-        });
+        throw new Error(data.error || `The email you entered does not appear to be an official work email for ${companyName}.`);
       }
-    } catch (e) { toast({ title: "Error", description: "Verification service offline.", variant: "destructive" }); }
-    finally { setIsProcessingOtp(false); }
+    } catch (e: any) { 
+      toast({ title: "OTP Request Failed", description: e.message || "Verification service offline.", variant: "destructive" }); 
+    } finally { setIsProcessingOtp(false); }
   };
 
   const handleVerifyOTP = async (index: number) => {
@@ -293,14 +298,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setActiveOtpIndex(null); setCorpEmail(""); setOtpCode(""); setOtpStep("request");
         toast({ title: "Success", description: "Experience verified via corporate link." });
       } else {
-        toast({ 
-          title: "Verification Failed", 
-          description: data.error || "Invalid OTP", 
-          variant: "destructive" 
-        });
+        throw new Error(data.error || "Invalid OTP code.");
       }
-    } catch (e) { toast({ title: "Error", variant: "destructive" }); }
-    finally { setIsProcessingOtp(false); }
+    } catch (e: any) { 
+      toast({ title: "Verification Failed", description: e.message || "Something went wrong.", variant: "destructive" }); 
+    } finally { setIsProcessingOtp(false); }
   };
 
   const handleDocumentVerification = async (index: number, companyName: string, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -315,8 +317,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     uploadData.append("companyName", companyName);
 
     try {
-      await fetch("/api/verify-document", { method: "POST", body: uploadData });
+      const res = await fetch("/api/verify-document", { method: "POST", body: uploadData });
+      const data = await res.json();
       
+      if (!res.ok) throw new Error(data.error || "Failed to verify document.");
+
       const updated = [...parsedBlocks.workExperience];
       updated[index].verificationBadge = "Staged for Forensic Audit";
       updated[index].documentType = "Staged Document"; 
@@ -326,17 +331,20 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         title: "Document Staged", 
         description: "Your proof of work has been accepted into the vault for forensic analysis. No further action needed." 
       });
-    } catch (error) {
-      toast({ title: "Upload Failed", description: "File transmission error.", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "Upload Failed", description: error.message || "File transmission error.", variant: "destructive" });
     } finally { setIsVerifyingDoc(null); }
   };
 
   const handleFinalSubmit = async () => {
     setIsSubmitting(true)
     try {
+      if (!job?.id) throw new Error("Job ID is missing. Please refresh the page.");
+      if (!formData.candidateName || !formData.candidateEmail) throw new Error("Candidate name and email are required.");
+
       const applicationId = await submitApplication({
-        jobId: job!.id!,
-        jobTitle: job!.title,
+        jobId: job.id,
+        jobTitle: job.title,
         candidateId: user?.uid || "anonymous_guest",
         candidateName: formData.candidateName,
         candidateEmail: formData.candidateEmail,
@@ -345,14 +353,21 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         linkedinUrl: "",
         passportBlocks: parsedBlocks 
       })
-     fetch("/api/analyze-application", { 
+      
+      // Trigger AI Analysis in the background (fire and forget)
+      fetch("/api/analyze-application", { 
           method: "POST", 
           headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ applicationId, parsedBlocks, githubToken: formData.githubToken }) // Pass token here
-      });
-      setSubmittedId(applicationId); setStep(3);
-    } catch (error) { toast({ title: "Submission Error", variant: "destructive" }); }
-    finally { setIsSubmitting(false) }
+          body: JSON.stringify({ applicationId, parsedBlocks, githubToken: formData.githubToken })
+      }).catch(err => console.error("Background AI analysis failed to trigger:", err));
+
+      setSubmittedId(applicationId); 
+      setStep(3);
+    } catch (error: any) { 
+      toast({ title: "Submission Error", description: error.message || "Failed to submit application to the database.", variant: "destructive" }); 
+    } finally { 
+      setIsSubmitting(false) 
+    }
   }
 
   const isAcademicsMissing = !parsedBlocks?.education || parsedBlocks?.education?.length === 0;
@@ -373,20 +388,21 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-3 mb-8">
                <div className="flex-grow text-left overflow-hidden">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID</p>
-<p className="text-sm font-bold text-slate-600 truncate">
-  {process.env.NEXT_PUBLIC_BASE_URL?.replace(/^https?:\/\//, '')}/status/{submittedId}
-</p>               </div>
-<Button 
-  onClick={() => { 
-    const link = `${process.env.NEXT_PUBLIC_BASE_URL}/status/${submittedId}`;
-    navigator.clipboard.writeText(link); 
-    toast({ title: "Link Copied to Clipboard" }); 
-  }} 
-  variant="ghost" 
-  size="icon"
->
-  <Copy className="w-4 h-4" />
-</Button>
+                  <p className="text-sm font-bold text-slate-600 truncate">
+                    {process.env.NEXT_PUBLIC_BASE_URL?.replace(/^https?:\/\//, '')}/status/{submittedId}
+                  </p>               
+               </div>
+               <Button 
+                  onClick={() => { 
+                    const link = `${process.env.NEXT_PUBLIC_BASE_URL}/status/${submittedId}`;
+                    navigator.clipboard.writeText(link); 
+                    toast({ title: "Link Copied to Clipboard" }); 
+                  }} 
+                  variant="ghost" 
+                  size="icon"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
             </div>
             <Button onClick={() => router.push(`/status/${submittedId}`)} className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-2xl font-black shadow-lg shadow-orange-500/20">View Live Matrix</Button>
           </div>
@@ -413,8 +429,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
 
         {step === 1 && (
           <div className="space-y-6">
-            
-            {/* UPDATED PASSPORT BANNER */}
             {passportData && (
                <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 md:p-8 rounded-[40px] text-white shadow-xl shadow-orange-500/20">
                   <h3 className="font-black text-2xl flex items-center gap-2 mb-2"><Fingerprint className="w-6 h-6"/> Passport Active</h3>
@@ -427,7 +441,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             <form onSubmit={handleLiveParse} className="bg-white p-8 md:p-12 rounded-[40px] shadow-xl border border-slate-200 space-y-8">
               <h2 className="text-2xl font-black text-slate-900">Identity Record</h2>
               
-             {/* SMART IDENTITY UI */}
               {user ? (
                 <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex items-center justify-between mb-6">
                    <div>
@@ -452,7 +465,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
 
-              {/* SECURE OAUTH UI */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between">
                   <span>GitHub Profile</span>
@@ -482,7 +494,6 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 )}
               </div>
 
-              {/* FILE UPLOAD COMPONENT */}
               <div className="space-y-2 p-6 rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50">
                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2"><UploadCloud className="w-4 h-4 text-blue-500"/> Upload Resume PDF</label>
                  <input 
@@ -573,19 +584,19 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                   {otpStep === "request" ? (
                                     <>
                                       <input type="email" placeholder="work-email@company.com" value={corpEmail} onChange={(e) => setCorpEmail(e.target.value)} className="w-full text-xs p-2 border border-slate-200 rounded-lg outline-none focus:border-blue-500" />
-                                      <Button size="sm" className="w-full text-xs bg-blue-600 hover:bg-blue-700 text-white" disabled={isProcessingOtp} onClick={() => handleRequestOTP(index, exp.company)}>
+                                      <Button type="button" size="sm" className="w-full text-xs bg-blue-600 hover:bg-blue-700 text-white" disabled={isProcessingOtp} onClick={() => handleRequestOTP(index, exp.company)}>
                                          {isProcessingOtp ? <Loader2 className="w-4 h-4 animate-spin"/> : "Validate Domain"}
                                       </Button>
                                     </>
                                   ) : (
                                     <>
                                       <input type="text" placeholder="6-digit OTP" value={otpCode} onChange={(e) => setOtpCode(e.target.value)} className="w-full text-xs p-2 border border-slate-200 rounded-lg outline-none text-center font-mono" />
-                                      <Button size="sm" className="w-full text-xs bg-green-600 hover:bg-green-700 text-white" disabled={isProcessingOtp} onClick={() => handleVerifyOTP(index)}>Verify Link</Button>
+                                      <Button type="button" size="sm" className="w-full text-xs bg-green-600 hover:bg-green-700 text-white" disabled={isProcessingOtp} onClick={() => handleVerifyOTP(index)}>Verify Link</Button>
                                     </>
                                   )}
                                 </div>
                               ) : (
-                                <Button variant="outline" size="sm" className="w-full text-xs font-bold border-blue-200 text-blue-700" onClick={() => { setActiveOtpIndex(index); setOtpStep("request"); setCorpEmail(""); }}>Verify Email</Button>
+                                <Button type="button" variant="outline" size="sm" className="w-full text-xs font-bold border-blue-200 text-blue-700" onClick={() => { setActiveOtpIndex(index); setOtpStep("request"); setCorpEmail(""); }}>Verify Email</Button>
                               )}
                            </div>
 
@@ -599,14 +610,14 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                  <p className="text-[9px] text-amber-700 leading-tight font-bold">Forensic result is hidden. If scanning fails to match names/dates, score reverts to Option C.</p>
                               </div>
                               <input type="file" accept=".pdf, .png, .jpg, .jpeg" id={`vault-upload-${index}`} className="hidden" onChange={(e) => handleDocumentVerification(index, exp.company, e)} />
-                              <Button variant="outline" size="sm" className="w-full text-xs font-bold border-indigo-200 text-indigo-700" onClick={() => document.getElementById(`vault-upload-${index}`)?.click()} disabled={isVerifyingDoc === index}>
+                              <Button type="button" variant="outline" size="sm" className="w-full text-xs font-bold border-indigo-200 text-indigo-700" onClick={() => document.getElementById(`vault-upload-${index}`)?.click()} disabled={isVerifyingDoc === index}>
                                 {isVerifyingDoc === index ? <Loader2 className="w-4 h-4 animate-spin" /> : "Secure Vault"}
                               </Button>
                            </div>
 
                            <div className="bg-slate-100 border border-slate-200 p-4 rounded-2xl flex flex-col justify-between">
                               <div><h5 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Option C</h5><p className="text-[10px] text-slate-500 font-medium mb-4">AI will proxy weight this role based on your public open-source timeline.</p></div>
-                              <Button variant="ghost" size="sm" className="w-full text-xs font-bold text-slate-500" onClick={() => { const updated = [...parsedBlocks.workExperience]; updated[index].verificationBadge = "Public Proxy Weighting"; setParsedBlocks({...parsedBlocks, workExperience: updated}); }}>Use Proxy</Button>
+                              <Button type="button" variant="ghost" size="sm" className="w-full text-xs font-bold text-slate-500" onClick={() => { const updated = [...parsedBlocks.workExperience]; updated[index].verificationBadge = "Public Proxy Weighting"; setParsedBlocks({...parsedBlocks, workExperience: updated}); }}>Use Proxy</Button>
                            </div>
                         </div>
                       )}
@@ -631,6 +642,245 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                    </div>
                  ))}
                </div>
+            </div>
+
+            {/* --- ALGORITHMIC PROOF SECTION --- */}
+            <div className="bg-white p-8 rounded-[40px] shadow-xl border border-slate-200">
+               <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+                  <h3 className="text-2xl font-black flex items-center gap-2">
+                    <Target className="w-6 h-6 text-emerald-500" /> Algorithmic Proof
+                  </h3>
+               </div>
+
+               {/* Connection Input & Verification */}
+               <div className="flex flex-col gap-4 mb-8 bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  {verificationStep === 1 ? (
+                    <div className="flex flex-col md:flex-row gap-3">
+                      <select 
+                        value={platformInput.platform} 
+                        onChange={(e) => setPlatformInput({...platformInput, platform: e.target.value})}
+                        className="p-4 rounded-xl border border-slate-200 font-bold outline-none focus:border-emerald-500 bg-white text-slate-700"
+                      >
+                        <option value="leetcode">LeetCode</option>
+                        <option value="codeforces">Codeforces</option>
+                        <option value="codechef">CodeChef</option>
+                        <option value="hackerrank">HackerRank</option>
+                      </select>
+                      <input 
+                        type="text" 
+                        placeholder="Enter Username" 
+                        value={platformInput.handle}
+                        onChange={(e) => setPlatformInput({...platformInput, handle: e.target.value})}
+                        className="flex-grow p-4 rounded-xl border border-slate-200 font-medium outline-none focus:border-emerald-500 text-slate-900"
+                      />
+                      <Button 
+                        type="button"
+                        onClick={() => {
+                          if (!platformInput.handle) return;
+                          // Generate a unique 6-character hex code for this session
+                          const code = `EleWin-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                          setVerificationCode(code);
+                          setVerificationStep(2);
+                        }}
+                        disabled={!platformInput.handle}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold px-8 h-[56px]"
+                      >
+                        Initiate Link
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="bg-emerald-50/50 border border-emerald-200 p-6 rounded-2xl animate-in fade-in zoom-in-95">
+                      <div className="flex items-start gap-4">
+                        <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-sm shrink-0">
+                          <ShieldCheck className="w-6 h-6 text-emerald-600" />
+                        </div>
+                        <div className="flex-grow">
+                          <h4 className="text-lg font-black text-slate-900 mb-1">Verify Ownership of @{platformInput.handle}</h4>
+                          <p className="text-sm text-slate-600 font-medium mb-4">
+                            To prove this is your account, please paste the code below into your <strong>{platformInput.platform === 'leetcode' ? 'About Me or Name' : platformInput.platform === 'codeforces' ? 'City or Organization' : 'Bio / About section'}</strong> on {platformInput.platform}.
+                          </p>
+                          
+                          <div className="flex items-center gap-3 mb-6">
+                            <code className="bg-white px-4 py-2 rounded-lg border border-slate-200 font-mono font-black text-lg text-slate-800 tracking-wider shadow-inner">
+                              {verificationCode}
+                            </code>
+                            <Button type="button" variant="outline" size="sm" className="h-10" onClick={() => {
+                              navigator.clipboard.writeText(verificationCode);
+                              toast({ title: "Copied to clipboard" });
+                            }}>Copy Code</Button>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <Button 
+                              type="button"
+                              onClick={async () => {
+                                setIsLinkingPlatform(true);
+                                try {
+                                  const res = await fetch("/api/coding-stats", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ ...platformInput, verificationCode }) 
+                                  });
+                                  
+                                  const data = await res.json();
+                                  
+                                  // EXPLICITLY CHECK res.ok BEFORE PROCEEDING
+                                  if (!res.ok) {
+                                     throw new Error(data.error || "Verification code not found on profile. Please ensure it is saved publicly and try again.");
+                                  }
+
+                                  // Add to the current application data
+                                  const newProfiles = {
+                                    ...(parsedBlocks.codingProfiles || {}),
+                                    [platformInput.platform]: { handle: platformInput.handle, stats: data.data, verifiedAt: new Date().toISOString() }
+                                  };
+                                  setParsedBlocks({ ...parsedBlocks, codingProfiles: newProfiles });
+                                  
+                                  // Also save to user profile if they're logged in
+                                  if (user) {
+                                    await setDoc(doc(db, "users", user.uid), {
+                                      codingProfiles: {
+                                        ...(passportData?.codingProfiles || {}),
+                                        ...newProfiles
+                                      }
+                                    }, { merge: true });
+                                  }
+
+                                  setPlatformInput({ platform: "leetcode", handle: "" });
+                                  setVerificationStep(1);
+                                  toast({ title: "Profile Verified & Attached!", description: "You can now remove the code from your profile." });
+                                  
+                                } catch (e: any) {
+                                  // NOW PROPERLY DISPLAYS THE 403 ERROR MESSAGE
+                                  toast({ 
+                                    title: "Verification Failed", 
+                                    description: e.message || "Something went wrong.", 
+                                    variant: "destructive" 
+                                  });
+                                } finally { 
+                                  setIsLinkingPlatform(false); 
+                                }
+                              }}
+                              disabled={isLinkingPlatform}
+                              className="bg-[#050A15] hover:bg-black text-white rounded-xl font-bold px-8"
+                            >
+                              {isLinkingPlatform ? <Loader2 className="w-4 h-4 animate-spin" /> : "I've added the code. Verify Now."}
+                            </Button>
+                            <Button type="button" variant="ghost" onClick={() => setVerificationStep(1)} className="text-slate-500 font-bold hover:text-slate-900">
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+               </div>
+
+               {/* Display Linked Profiles */}
+               {parsedBlocks.codingProfiles && Object.keys(parsedBlocks.codingProfiles).length > 0 && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {parsedBlocks.codingProfiles.leetcode && (
+                      <div className="p-6 rounded-3xl border-2 border-emerald-100 bg-emerald-50/30 shadow-sm flex flex-col relative group">
+                         <button type="button" onClick={() => {
+                            const updated = {...parsedBlocks.codingProfiles};
+                            delete updated.leetcode;
+                            setParsedBlocks({...parsedBlocks, codingProfiles: updated});
+                         }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                         
+                         <p className="text-[10px] font-black uppercase text-emerald-600 tracking-widest mb-1">LeetCode</p>
+                         <h4 className="font-black text-xl text-slate-900 mb-4">@{parsedBlocks.codingProfiles.leetcode.handle}</h4>
+                         <div className="grid grid-cols-2 gap-4 mt-auto">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Problems Solved</p>
+                              <p className="text-2xl font-black text-emerald-600">{parsedBlocks.codingProfiles.leetcode.stats.totalSolved}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Contest Rating</p>
+                              <p className="text-2xl font-black text-slate-900">{parsedBlocks.codingProfiles.leetcode.stats.contestRating || "N/A"}</p>
+                            </div>
+                         </div>
+                         <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                           <ShieldCheck className="w-3 h-3" /> Attached
+                         </span>
+                      </div>
+                    )}
+                    {parsedBlocks.codingProfiles.codeforces && (
+                      <div className="p-6 rounded-3xl border-2 border-blue-100 bg-blue-50/30 shadow-sm flex flex-col relative group">
+                         <button type="button" onClick={() => {
+                            const updated = {...parsedBlocks.codingProfiles};
+                            delete updated.codeforces;
+                            setParsedBlocks({...parsedBlocks, codingProfiles: updated});
+                         }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                         
+                         <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest mb-1">Codeforces</p>
+                         <h4 className="font-black text-xl text-slate-900 mb-4">@{parsedBlocks.codingProfiles.codeforces.handle}</h4>
+                         <div className="grid grid-cols-2 gap-4 mt-auto">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Current Rating</p>
+                              <p className="text-2xl font-black text-blue-600">{parsedBlocks.codingProfiles.codeforces.stats.rating}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Rank</p>
+                              <p className="text-lg font-black text-slate-900 capitalize">{parsedBlocks.codingProfiles.codeforces.stats.rank}</p>
+                            </div>
+                         </div>
+                         <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                           <ShieldCheck className="w-3 h-3" /> Attached
+                         </span>
+                      </div>
+                    )}
+                    {parsedBlocks.codingProfiles.codechef && (
+                      <div className="p-6 rounded-3xl border-2 border-amber-100 bg-amber-50/30 shadow-sm flex flex-col relative group">
+                         <button type="button" onClick={() => {
+                            const updated = {...parsedBlocks.codingProfiles};
+                            delete updated.codechef;
+                            setParsedBlocks({...parsedBlocks, codingProfiles: updated});
+                         }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                         
+                         <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest mb-1">CodeChef</p>
+                         <h4 className="font-black text-xl text-slate-900 mb-4">@{parsedBlocks.codingProfiles.codechef.handle}</h4>
+                         <div className="grid grid-cols-2 gap-4 mt-auto">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Current Rating</p>
+                              <p className="text-2xl font-black text-amber-600">{parsedBlocks.codingProfiles.codechef.stats.rating}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Division</p>
+                              <p className="text-xl font-black text-slate-900">{parsedBlocks.codingProfiles.codechef.stats.stars}</p>
+                            </div>
+                         </div>
+                         <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                           <ShieldCheck className="w-3 h-3" /> Attached
+                         </span>
+                      </div>
+                    )}
+                    {parsedBlocks.codingProfiles.hackerrank && (
+                      <div className="p-6 rounded-3xl border-2 border-green-100 bg-green-50/30 shadow-sm flex flex-col relative group">
+                         <button type="button" onClick={() => {
+                            const updated = {...parsedBlocks.codingProfiles};
+                            delete updated.hackerrank;
+                            setParsedBlocks({...parsedBlocks, codingProfiles: updated});
+                         }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                         
+                         <p className="text-[10px] font-black uppercase text-green-600 tracking-widest mb-1">HackerRank</p>
+                         <h4 className="font-black text-xl text-slate-900 mb-4">@{parsedBlocks.codingProfiles.hackerrank.handle}</h4>
+                         <div className="grid grid-cols-2 gap-4 mt-auto">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Level</p>
+                              <p className="text-2xl font-black text-green-600">Lvl {parsedBlocks.codingProfiles.hackerrank.stats.level}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Title</p>
+                              <p className="text-lg font-black text-slate-900 capitalize truncate">{parsedBlocks.codingProfiles.hackerrank.stats.title}</p>
+                            </div>
+                         </div>
+                         <span className="absolute top-4 right-14 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-2 py-1 rounded-md flex items-center gap-1">
+                           <ShieldCheck className="w-3 h-3" /> Attached
+                         </span>
+                      </div>
+                    )}
+                 </div>
+               )}
             </div>
 
             <Button 
