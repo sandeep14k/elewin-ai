@@ -89,14 +89,22 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setJob(jobData)
         
         if (user) {
+          // SAFEGUARD: Base fallbacks from Firebase Auth
+          let fetchedName = user.displayName || "";
+          let fetchedEmail = user.email || "";
+
           const userDocSnap = await getDoc(doc(db, "users", user.uid));
           if (userDocSnap.exists()) {
              const uData = userDocSnap.data();
              
+             // SAFEGUARD: Override with Firestore data, or extract from email if missing completely
+             fetchedName = uData.name || fetchedName || (fetchedEmail ? fetchedEmail.split("@")[0] : "Applicant");
+             fetchedEmail = uData.email || fetchedEmail;
+
              setFormData(prev => ({ 
                ...prev, 
-               candidateName: uData.name || "", 
-               candidateEmail: uData.email || "", 
+               candidateName: fetchedName, 
+               candidateEmail: fetchedEmail, 
                githubUsername: uData.githubUsername || "", 
                githubToken: uData.githubToken || "" 
              }))
@@ -114,6 +122,13 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                   codingProfiles: uData.codingProfiles || null
                 })
              }
+          } else {
+             // If doc doesn't exist, still set fallbacks
+             setFormData(prev => ({ 
+               ...prev, 
+               candidateName: fetchedName || (fetchedEmail ? fetchedEmail.split("@")[0] : "Applicant"), 
+               candidateEmail: fetchedEmail 
+             }))
           }
         }
       } catch (error: any) {
@@ -214,6 +229,13 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       
       if (data.structured) {
         let finalBlocks = data.structured;
+
+        // SAFEGUARD: If name/email are STILL somehow missing, pull them directly from the parsed resume!
+        setFormData(prev => ({
+          ...prev,
+          candidateName: prev.candidateName || finalBlocks.fullName || "Applicant",
+          candidateEmail: prev.candidateEmail || finalBlocks.email || user?.email || ""
+        }));
 
         if (passportData) {
           const existingExp = new Set((passportData.workExperience || []).map((e: any) => `${e.title}-${e.company}`.toLowerCase()));
@@ -340,14 +362,21 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
     setIsSubmitting(true)
     try {
       if (!job?.id) throw new Error("Job ID is missing. Please refresh the page.");
-      if (!formData.candidateName || !formData.candidateEmail) throw new Error("Candidate name and email are required.");
+      
+      // FINAL SAFEGUARD: Use everything we have to ensure it never throws
+      const finalName = formData.candidateName || parsedBlocks?.fullName || "Anonymous Applicant";
+      const finalEmail = formData.candidateEmail || parsedBlocks?.email || user?.email || "";
+
+      if (!finalName || !finalEmail) {
+        throw new Error("Candidate name and email are required.");
+      }
 
       const applicationId = await submitApplication({
         jobId: job.id,
         jobTitle: job.title,
         candidateId: user?.uid || "anonymous_guest",
-        candidateName: formData.candidateName,
-        candidateEmail: formData.candidateEmail,
+        candidateName: finalName,
+        candidateEmail: finalEmail,
         resumeUrl: formData.resumeUrl,
         githubUsername: formData.githubUsername.replace("@", ""),
         linkedinUrl: "",
@@ -445,8 +474,8 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex items-center justify-between mb-6">
                    <div>
                      <p className="text-[10px] font-black uppercase text-blue-500 tracking-widest mb-1">EleWin Verified Applicant</p>
-                     <p className="font-black text-lg text-slate-900">{formData.candidateName}</p>
-                     <p className="text-sm font-medium text-slate-500">{formData.candidateEmail}</p>
+                     <p className="font-black text-lg text-slate-900">{formData.candidateName || "Verified Applicant"}</p>
+                     <p className="text-sm font-medium text-slate-500">{formData.candidateEmail || user?.email}</p>
                    </div>
                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
                       <ShieldCheck className="w-6 h-6 text-blue-600" />
@@ -722,21 +751,25 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                     body: JSON.stringify({ ...platformInput, verificationCode }) 
                                   });
                                   
-                                  const data = await res.json();
+                                  const data = await res.json().catch(() => ({ error: "Invalid server response." }));
                                   
-                                  // EXPLICITLY CHECK res.ok BEFORE PROCEEDING
                                   if (!res.ok) {
-                                     throw new Error(data.error || "Verification code not found on profile. Please ensure it is saved publicly and try again.");
+                                    console.log("Backend rejected verification:", data);
+                                    toast({ 
+                                      title: "Verification Failed", 
+                                      description: data.error || "Could not find the verification code on your profile.", 
+                                      variant: "destructive" 
+                                    });
+                                    setIsLinkingPlatform(false);
+                                    return; 
                                   }
 
-                                  // Add to the current application data
                                   const newProfiles = {
                                     ...(parsedBlocks.codingProfiles || {}),
                                     [platformInput.platform]: { handle: platformInput.handle, stats: data.data, verifiedAt: new Date().toISOString() }
                                   };
                                   setParsedBlocks({ ...parsedBlocks, codingProfiles: newProfiles });
                                   
-                                  // Also save to user profile if they're logged in
                                   if (user) {
                                     await setDoc(doc(db, "users", user.uid), {
                                       codingProfiles: {
@@ -751,10 +784,10 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                                   toast({ title: "Profile Verified & Attached!", description: "You can now remove the code from your profile." });
                                   
                                 } catch (e: any) {
-                                  // NOW PROPERLY DISPLAYS THE 403 ERROR MESSAGE
+                                  console.error("[CRITICAL NETWORK ERROR]", e);
                                   toast({ 
-                                    title: "Verification Failed", 
-                                    description: e.message || "Something went wrong.", 
+                                    title: "Connection Error", 
+                                    description: "Could not reach the verification server.", 
                                     variant: "destructive" 
                                   });
                                 } finally { 
