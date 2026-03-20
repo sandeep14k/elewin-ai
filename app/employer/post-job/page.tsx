@@ -97,31 +97,43 @@ export default function PostJobPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) {
-      toast({ 
-        title: "Validation Error", 
-        description: "Please fill in all required fields correctly.", 
-        variant: "destructive" 
-      })
+      toast({ title: "Validation Error", description: "Please fill in all required fields correctly.", variant: "destructive" })
       return
     }
 
     setIsLoading(true)
     try {
-        await createJob({
-          companyId: user!.uid,
-          employerId: user!.uid, // Satisfies the employerId requirement
-          companyName: formData.companyName,
+      // 1. Generate Dynamic Weights based on the JD!
+      const weightRes = await fetch("/api/generate-job-weights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           title: formData.title,
           description: formData.description,
-          experienceLevel: formData.experienceLevel, // or "Mid"
-          requiredSkills: formData.requiredSkills,
-          type: "Full-Time",     // Default value
-          department: "Engineering", // Default value
-          location: "Remote",    // Default value
-          automation: formData.automation
+          experienceLevel: formData.experienceLevel,
+          requiredSkills: formData.requiredSkills
         })
+      });
+      const weightData = await weightRes.json();
+      const dynamicWeights = weightData.weights;
 
-      toast({ title: "Live!", description: "Forensic pipeline and auto-triggers are now active." })
+      // 2. Save the Job to Firebase
+      await createJob({
+        companyId: user!.uid,
+        employerId: user!.uid,
+        companyName: formData.companyName,
+        title: formData.title,
+        description: formData.description,
+        experienceLevel: formData.experienceLevel,
+        requiredSkills: formData.requiredSkills,
+        type: "Full-Time",
+        department: "Engineering",
+        location: "Remote",
+        automation: formData.automation,
+        scoringWeights: dynamicWeights // <-- ADD THIS NEW FIELD
+      })
+
+      toast({ title: "Live!", description: "Forensic pipeline active with custom AI scoring weights." })
       router.push(`/employer/dashboard`) 
     } catch (error) {
       toast({ title: "Error", description: "Could not post job.", variant: "destructive" })

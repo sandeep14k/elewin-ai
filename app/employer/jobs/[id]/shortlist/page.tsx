@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
+import { useState, useEffect, useMemo, use } from "react"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
 import { Application, Job } from "@/types/platform"
@@ -8,14 +8,16 @@ import {
   UserCheck, ArrowLeft, Mail, Github, 
   Trophy, School, Briefcase, Star, Zap, 
   ExternalLink, Download, Calendar, MessageSquare,
-  FileText, EyeOff, Eye, Target
+  FileText, EyeOff, Eye, Target, SlidersHorizontal,
+  ChevronDown, ChevronUp, ShieldCheck, Sparkles
 } from "lucide-react"
 import Link from "next/link"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { 
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer 
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts'
 
 export default function ShortlistPage({ params }: { params: Promise<{ id: string }> }) {
@@ -25,16 +27,29 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
   const [job, setJob] = useState<Job | null>(null)
   const [shortlisted, setShortlisted] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedApp, setExpandedApp] = useState<string | null>(null)
   
   // --- Bias-Masking State ---
   const [isBlindMode, setIsBlindMode] = useState(true)
+
+  // --- Live Ranking State ---
+  const [liveWeights, setLiveWeights] = useState({
+    skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5
+  });
+  const [isCustomizing, setIsCustomizing] = useState(false);
 
   useEffect(() => {
     const fetchShortlist = async () => {
       try {
         const jobRef = doc(db, "jobs", id)
         const jobSnap = await getDoc(jobRef)
-        if (jobSnap.exists()) setJob({ id: jobSnap.id, ...jobSnap.data() } as Job)
+        if (jobSnap.exists()) {
+          const jobData = { id: jobSnap.id, ...jobSnap.data() } as Job;
+          setJob(jobData)
+          if (jobData.scoringWeights) {
+            setLiveWeights(jobData.scoringWeights);
+          }
+        }
 
         const q = query(
           collection(db, "applications"),
@@ -45,12 +60,7 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
         const list: Application[] = []
         snap.forEach(doc => list.push({ id: doc.id, ...doc.data() } as Application))
         
-        // Sort by Match Score descending
-        setShortlisted(list.sort((a, b) => {
-          const scoreA = (a.analysis as any)?.overallMatchScore || 0;
-          const scoreB = (b.analysis as any)?.overallMatchScore || 0;
-          return scoreB - scoreA;
-        }))
+        setShortlisted(list)
       } catch (e) {
         console.error(e)
       } finally {
@@ -60,36 +70,79 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
     fetchShortlist()
   }, [id])
 
-  // --- CSV EXPORT FUNCTIONALITY ---
-  const handleExportCSV = () => {
-    if (shortlisted.length === 0) return;
+  // 🔥 THE LIVE RE-RANKING ENGINE 🔥
+  const liveRankedCandidates = useMemo(() => {
+    return [...shortlisted].map(app => {
+      const breakdown = (app.analysis as any)?.weightedBreakdown || {};
+      const originalWeights = job?.scoringWeights || { skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5 };
+      const safeDivide = (val: number, weight: number) => weight > 0 ? (val / weight) * 100 : 0;
 
-    // Define CSV Headers
+      const rawSkills = safeDivide(breakdown.skills, originalWeights.skills);
+      const rawGithub = safeDivide(breakdown.github, originalWeights.github);
+      const rawProjects = safeDivide(breakdown.projects, originalWeights.projects);
+      const rawAlgo = safeDivide(breakdown.algorithmic, originalWeights.algorithmic);
+      const rawExp = safeDivide(breakdown.experience, originalWeights.experience);
+      const rawVelocity = safeDivide(breakdown.velocity, originalWeights.velocity);
+
+      const newBreakdown = {
+        skills: Math.round(rawSkills * (liveWeights.skills / 100)),
+        github: Math.round(rawGithub * (liveWeights.github / 100)),
+        projects: Math.round(rawProjects * (liveWeights.projects / 100)),
+        algorithmic: Math.round(rawAlgo * (liveWeights.algorithmic / 100)),
+        experience: Math.round(rawExp * (liveWeights.experience / 100)),
+        velocity: Math.round(rawVelocity * (liveWeights.velocity / 100))
+      };
+
+      const newTotal = Object.values(newBreakdown).reduce((a, b) => a + b, 0);
+
+      return { ...app, liveScore: newTotal, liveBreakdown: newBreakdown };
+    }).sort((a, b) => b.liveScore - a.liveScore);
+  }, [shortlisted, liveWeights, job]);
+
+  // --- PREPARE COMPARATIVE CHART DATA ---
+  const comparativeData = liveRankedCandidates.map((app, index) => {
+    const breakdown = (app as any).liveBreakdown || {};
+    return {
+      name: isBlindMode ? `Rank #${index + 1}` : app.candidateName.split(" ")[0],
+      Skills: breakdown.skills || 0,
+      GitHub: breakdown.github || 0,
+      Projects: breakdown.projects || 0,
+      Algorithmic: breakdown.algorithmic || 0,
+      Experience: breakdown.experience || 0,
+      Velocity: breakdown.velocity || 0,
+      Total: (app as any).liveScore || 0
+    };
+  });
+
+  const topScore = liveRankedCandidates.length > 0 ? (liveRankedCandidates[0] as any).liveScore : 0;
+
+  // --- CSV EXPORT FUNCTIONALITY (Updated to use Live Scores) ---
+  const handleExportCSV = () => {
+    if (liveRankedCandidates.length === 0) return;
+
     const headers = [
-      "Rank", "Match Score", "Candidate Name", "Email", "GitHub Username", 
+      "Live Rank", "Live Match Score", "Candidate Name", "Email", "GitHub Username", 
       "LPI Score", "Hidden Gem", "Verified Coding Platforms", "AI Summary"
     ];
 
-    // Map data to CSV rows
-    const rows = shortlisted.map((app, index) => {
+    const rows = liveRankedCandidates.map((app, index) => {
       const analysisExt = app.analysis as any;
       const codingProfiles = (app as any).passportBlocks?.codingProfiles || {};
       const verifiedPlatforms = Object.keys(codingProfiles).join(" | ") || "None";
       
       return [
         index + 1,
-        analysisExt?.overallMatchScore || 0,
-        `"${app.candidateName}"`, // Escape quotes for names with commas
+        (app as any).liveScore || 0,
+        `"${app.candidateName}"`, 
         app.candidateEmail,
         app.githubUsername,
         analysisExt?.learningPotential?.score || 0,
         analysisExt?.isHiddenGem ? "Yes" : "No",
         `"${verifiedPlatforms}"`,
-        `"${(analysisExt?.aiSummary || "").replace(/"/g, '""')}"` // Safely escape internal quotes
+        `"${(analysisExt?.score_reasoning || analysisExt?.aiSummary || "").replace(/"/g, '""')}"` 
       ].join(",");
     });
 
-    // Create and download Blob
     const csvContent = [headers.join(","), ...rows].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -121,7 +174,7 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
         </Link>
 
         {/* --- PAGE HEADER --- */}
-        <div className="bg-[#050A15] p-8 md:p-10 rounded-[40px] shadow-2xl mb-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border border-white/5 relative overflow-hidden">
+        <div className="bg-[#050A15] p-8 md:p-10 rounded-[40px] shadow-2xl mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border border-white/5 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 blur-[80px] rounded-full pointer-events-none" />
           
           <div className="relative z-10">
@@ -153,16 +206,125 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
           </Button>
         </div>
 
+        {/* --- 🔥 THE "WHAT-IF" CONTROL PANEL 🔥 --- */}
+        {shortlisted.length > 0 && (
+          <div className="bg-white rounded-[32px] p-8 mb-8 border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="flex justify-between items-center mb-6 relative z-10">
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2 mb-1">
+                    <SlidersHorizontal className="w-5 h-5 text-orange-500" />
+                    Live Re-Ranking Engine
+                  </h3>
+                  <p className="text-sm text-slate-500 font-medium">Adjust the scoring rubric to see how your finalists perform under different criteria.</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsCustomizing(!isCustomizing)}
+                  className="font-bold rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  {isCustomizing ? "Lock Weights" : "Adjust Rubric"}
+                </Button>
+            </div>
+
+            {isCustomizing ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6 relative z-10 animate-in fade-in slide-in-from-top-4 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                  {Object.entries(liveWeights).map(([key, value]) => (
+                    <div key={key} className="space-y-2">
+                      <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-slate-500">
+                        <span>{key}</span>
+                        <span className="text-orange-500">{value}%</span>
+                      </div>
+                      <input 
+                        type="range" min="0" max="100" value={value}
+                        onChange={(e) => setLiveWeights({...liveWeights, [key]: parseInt(e.target.value)})}
+                        className="w-full accent-orange-500"
+                      />
+                    </div>
+                  ))}
+                  <div className="col-span-full pt-2">
+                    <p className="text-xs text-slate-500 italic text-center font-bold">
+                      Total Weight: <span className={Object.values(liveWeights).reduce((a,b)=>a+b,0) !== 100 ? "text-red-500" : "text-green-500"}>{Object.values(liveWeights).reduce((a,b)=>a+b,0)}%</span>
+                    </p>
+                  </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2 relative z-10">
+                {Object.entries(liveWeights).map(([key, value]) => (
+                  <span key={key} className="bg-slate-50 border border-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                    {key}: <span className="text-orange-500">{value}%</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* --- 🔥 FORENSIC DELTA DASHBOARD (STACKED CHART) 🔥 --- */}
+        {liveRankedCandidates.length > 1 && (
+          <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 mb-8 animate-in fade-in slide-in-from-bottom-4">
+            <div className="mb-8">
+              <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                <Target className="w-6 h-6 text-indigo-500" /> Head-to-Head Score Breakdown
+              </h2>
+              <p className="text-sm text-slate-500 font-medium mt-1">
+                Visualizing exactly where finalists gained or lost points against your live rubric.
+              </p>
+            </div>
+
+            <div className="w-full h-[350px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={comparativeData}
+                  margin={{ top: 20, right: 30, left: -20, bottom: 5 }}
+                  barSize={60}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#64748b', fontWeight: 'bold', fontSize: 12 }} 
+                    dy={10}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                    domain={[0, 100]}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                    itemStyle={{ fontWeight: 'bold' }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 'bold', color: '#64748b' }} />
+                  
+                  <Bar dataKey="Skills" stackId="a" fill="#3b82f6" name="Tech Skills" radius={[0, 0, 4, 4]} />
+                  <Bar dataKey="GitHub" stackId="a" fill="#f97316" name="GitHub Code" />
+                  <Bar dataKey="Projects" stackId="a" fill="#8b5cf6" name="Projects" />
+                  <Bar dataKey="Algorithmic" stackId="a" fill="#10b981" name="DSA / LeetCode" />
+                  <Bar dataKey="Experience" stackId="a" fill="#f43f5e" name="Verified Exp" />
+                  <Bar dataKey="Velocity" stackId="a" fill="#eab308" name="Learning Velocity" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* --- SHORTLIST GRID --- */}
         <div className="grid gap-8">
-          {shortlisted.length === 0 ? (
+          {liveRankedCandidates.length === 0 ? (
              <div className="text-center py-20 bg-white rounded-[40px] border-4 border-dashed border-slate-200 text-slate-400">
                <UserCheck className="w-16 h-16 mx-auto mb-4 opacity-20" />
                <p className="font-bold uppercase tracking-widest text-sm">No finalists locked in yet.</p>
              </div>
           ) : (
-            shortlisted.map((app, index) => {
+            liveRankedCandidates.map((app, index) => {
               const analysisExt = app.analysis as any;
+              const liveScore = (app as any).liveScore;
+              const liveBreakdown = (app as any).liveBreakdown;
+              const pointDelta = topScore - liveScore;
+
               const chartData = [
                 { subject: 'Language', A: analysisExt?.forensic_skill_graph?.language_mastery || 0 },
                 { subject: 'Hygiene', A: analysisExt?.forensic_skill_graph?.code_hygiene_and_testing || 0 },
@@ -198,9 +360,26 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
                             </RadarChart>
                           </ResponsiveContainer>
                         </div>
-                        <div className="mt-4 text-center">
-                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Match Score</p>
-                           <p className="text-4xl font-black text-slate-900">{analysisExt?.overallMatchScore}%</p>
+                        <div className="mt-4 text-center w-full flex flex-col items-center">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Live Match Score</p>
+                           <p className="text-5xl font-black text-slate-900 mb-1">{liveScore}</p>
+                           
+                           {/* 🔥 DELTA BADGE 🔥 */}
+                           {index > 0 && (
+                             <div className="inline-flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded-md text-[10px] font-black uppercase border border-red-100 mt-1">
+                               -{pointDelta} Pts vs Leader
+                             </div>
+                           )}
+
+                           <Button 
+                               variant="ghost" 
+                               size="sm" 
+                               onClick={() => setExpandedApp(expandedApp === app.id ? null : app.id!)}
+                               className="mt-4 text-orange-600 font-bold text-xs hover:bg-orange-100 w-full"
+                           >
+                               {expandedApp === app.id ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+                               Deep Audit
+                           </Button>
                         </div>
                     </div>
 
@@ -238,6 +417,40 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
                         )}
                       </div>
 
+                      {/* 🔥 NEW: GRANULAR SCORE BREAKDOWN 🔥 */}
+                      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Skills</span>
+                           <span className="text-base font-black text-blue-500">{liveBreakdown.skills}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.skills}</span>
+                         </div>
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">GitHub</span>
+                           <span className="text-base font-black text-orange-500">{liveBreakdown.github}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.github}</span>
+                         </div>
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Projects</span>
+                           <span className="text-base font-black text-purple-500">{liveBreakdown.projects}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.projects}</span>
+                         </div>
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">DSA</span>
+                           <span className="text-base font-black text-emerald-500">{liveBreakdown.algorithmic}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.algorithmic}</span>
+                         </div>
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Exp</span>
+                           <span className="text-base font-black text-rose-500">{liveBreakdown.experience}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.experience}</span>
+                         </div>
+                         <div className="bg-slate-50 p-2 rounded-xl text-center border border-slate-100 shadow-sm">
+                           <span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">LPI</span>
+                           <span className="text-base font-black text-yellow-500">{liveBreakdown.velocity}</span>
+                           <span className="text-[8px] text-slate-400 block">/ {liveWeights.velocity}</span>
+                         </div>
+                      </div>
+
                       {/* Display Coding Profiles if they exist */}
                       {(app as any).passportBlocks?.codingProfiles && Object.keys((app as any).passportBlocks.codingProfiles).length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-4">
@@ -249,10 +462,11 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
                         </div>
                       )}
 
-                      <div className="bg-slate-50 p-6 rounded-[24px] border border-slate-100 mt-4">
-                        <p className="text-sm text-slate-600 leading-relaxed italic">
-                          <MessageSquare className="w-4 h-4 text-slate-300 inline mr-2 mb-1" />
-                          "{analysisExt?.aiSummary}"
+                      {/* 🔥 EXPLICIT SCORE REASONING 🔥 */}
+                      <div className="bg-slate-50 p-4 rounded-[20px] border border-slate-100 mt-2 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
+                        <p className="text-sm text-slate-700 font-bold leading-relaxed">
+                          "{analysisExt?.score_reasoning || analysisExt?.aiSummary}"
                         </p>
                       </div>
                     </div>
@@ -278,6 +492,56 @@ export default function ShortlistPage({ params }: { params: Promise<{ id: string
                     </div>
 
                   </div>
+
+                  {/* 4. The Glass-Box Verification Matrix (Expandable) */}
+                  {expandedApp === app.id && (
+                    <div className="border-t border-slate-200 p-8 bg-slate-50 animate-in fade-in slide-in-from-top-2">
+                        
+                        <div className="flex items-center gap-2 mb-6">
+                            <ShieldCheck className="w-5 h-5 text-orange-500" />
+                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Deep Verification Report</h4>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-4">
+                            {analysisExt?.skill_verification_matrix?.map((item: any, i: number) => (
+                                <div key={i} className={`flex flex-col gap-3 p-5 rounded-2xl border-2 bg-white ${
+                                    item.status === 'Verified' ? 'border-green-100' : 
+                                    item.status === 'Falsified' ? 'border-red-100' : 
+                                    'border-slate-100'
+                                }`}>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-lg font-black text-slate-900">{item.skill}</span>
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-md ${
+                                            item.status === 'Verified' ? 'bg-green-100 text-green-700' : 
+                                            item.status === 'Falsified' ? 'bg-red-100 text-red-700' : 
+                                            'bg-slate-200 text-slate-600'
+                                        }`}>
+                                            {item.status}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-2">
+                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Resume Claim</span>
+                                            <span className="text-slate-700 font-medium">{item.resumeClaim || "None"}</span>
+                                        </div>
+                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">GitHub Evidence</span>
+                                            <span className="text-slate-700 font-medium">{item.githubEvidence || "No code found"}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-2">
+                                        <p className="text-sm font-medium text-slate-800 italic flex items-start gap-2">
+                                            <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                                            "{item.explanation}"
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                  )}
                 </div>
               )
             })

@@ -6,7 +6,6 @@ export const createJob = async (
   jobData: Omit<Job, "id" | "createdAt" | "status">
 ): Promise<string> => {
   try {
-    // We explicitly create the document with all required fields
     const docRef = await addDoc(collection(db, "jobs"), {
       companyId: jobData.companyId,
       companyName: jobData.companyName,
@@ -15,18 +14,19 @@ export const createJob = async (
       experienceLevel: jobData.experienceLevel,
       requiredSkills: jobData.requiredSkills,
       
-      // --- THE ATS KILLER: Forensic Automation Rules ---
       automation: {
         autoShortlistThreshold: jobData.automation?.autoShortlistThreshold || null,
         autoRejectThreshold: jobData.automation?.autoRejectThreshold || null,
         interviewLink: jobData.automation?.interviewLink || "",
       },
-
+      
+      // Now TypeScript knows this is perfectly legal!
+      scoringWeights: jobData.scoringWeights || { skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5 },
+      
       status: "open",
       createdAt: Timestamp.now(), 
     });
     
-    console.log("Job created successfully with ID:", docRef.id);
     return docRef.id;
   } catch (error) {
     console.error("Firebase Error creating job:", error);

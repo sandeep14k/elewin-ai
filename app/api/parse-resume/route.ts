@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ==========================================
+// 🔥 GROQ INTERCEPTION 🔥
+// Blazing fast resume parsing with Llama 3.1 70B
+// ==========================================
+const groqClient = new OpenAI({ 
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1" 
+});
 
 // --- Helper: Extract text directly from an uploaded File Buffer in RAM ---
 async function extractTextFromBuffer(arrayBuffer: ArrayBuffer) {
@@ -83,7 +90,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ raw: rawText, structured: null });
     }
 
-    // 3. Send raw text to OpenAI for structured conversion
+    // 3. Send raw text to Groq for structured conversion
     const prompt = `
     Extract the following information from the resume text into a strictly formatted JSON object.
     - fullName: string
@@ -101,10 +108,10 @@ export async function POST(req: Request) {
     ${rawText}
     `;
 
-    console.log(`[LIVE PARSE] Sending to OpenAI for structuring...`);
+    console.log(`[LIVE PARSE] Sending to Groq/Llama for structuring...`);
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+    const completion = await groqClient.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: "You are an elite technical recruitment parser. Output strictly in JSON." },

@@ -1,18 +1,20 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
+import { useState, useEffect, useMemo, use } from "react"
 import { getJobWithApplications, executeAutonomousShortlist, updateApplicationStatus } from "@/lib/employer"
 import { Job, Application } from "@/types/platform"
 import { 
   Github, FileText, Loader2, UserCheck, 
   Sparkles, Zap, Star, ChevronDown, ChevronUp, 
-  Info, Target, Network, EyeOff, Eye, ShieldAlert, ShieldCheck
+  Info, Target, Network, EyeOff, Eye, ShieldAlert, ShieldCheck,
+  SlidersHorizontal
 } from "lucide-react"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { 
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer 
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend 
 } from 'recharts'
 
 export default function EmployerJobDashboard({ params }: { params: Promise<{ id: string }> }) {
@@ -29,11 +31,22 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
   const [targetCount, setTargetCount] = useState(5)
   const [isShortlisting, setIsShortlisting] = useState(false)
 
+  // 🔥 NEW: State for interactive weights
+  const [liveWeights, setLiveWeights] = useState({
+    skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5
+  });
+  const [isCustomizing, setIsCustomizing] = useState(false);
+
   const loadData = async () => {
     try {
       const data = await getJobWithApplications(id)
       setJob(data.job)
       setApplications(data.applications)
+      
+      // Set initial weights from the AI dynamically generated rubric!
+      if (data.job.scoringWeights) {
+        setLiveWeights(data.job.scoringWeights)
+      }
     } catch (error) { console.error(error) } finally { setIsLoading(false) }
   }
 
@@ -56,6 +69,57 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
       setIsShortlisting(false)
     }
   }
+
+  // 🔥 THE LIVE RE-RANKING ENGINE 🔥
+  const liveRankedCandidates = useMemo(() => {
+    return [...applications].map(app => {
+      const breakdown = (app.analysis as any)?.weightedBreakdown || {};
+      
+      // Reverse-engineer their raw score (out of 100) based on the original AI weights
+      const originalWeights = job?.scoringWeights || { skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5 };
+      
+      // Prevent division by zero
+      const safeDivide = (val: number, weight: number) => weight > 0 ? (val / weight) * 100 : 0;
+
+      const rawSkills = safeDivide(breakdown.skills, originalWeights.skills);
+      const rawGithub = safeDivide(breakdown.github, originalWeights.github);
+      const rawProjects = safeDivide(breakdown.projects, originalWeights.projects);
+      const rawAlgo = safeDivide(breakdown.algorithmic, originalWeights.algorithmic);
+      const rawExp = safeDivide(breakdown.experience, originalWeights.experience);
+      const rawVelocity = safeDivide(breakdown.velocity, originalWeights.velocity);
+
+      // Apply new Live Weights to compute re-ranked breakdown
+      const newBreakdown = {
+        skills: Math.round(rawSkills * (liveWeights.skills / 100)),
+        github: Math.round(rawGithub * (liveWeights.github / 100)),
+        projects: Math.round(rawProjects * (liveWeights.projects / 100)),
+        algorithmic: Math.round(rawAlgo * (liveWeights.algorithmic / 100)),
+        experience: Math.round(rawExp * (liveWeights.experience / 100)),
+        velocity: Math.round(rawVelocity * (liveWeights.velocity / 100))
+      };
+
+      const newTotal = Object.values(newBreakdown).reduce((a, b) => a + b, 0);
+
+      return { ...app, liveScore: newTotal, liveBreakdown: newBreakdown };
+    }).sort((a, b) => b.liveScore - a.liveScore); // Re-sort automatically!
+  }, [applications, liveWeights, job]);
+
+  // --- PREPARE COMPARATIVE CHART DATA ---
+  const comparativeData = liveRankedCandidates.map((app, index) => {
+    const breakdown = (app as any).liveBreakdown || {};
+    return {
+      name: isBlindMode ? `Rank #${index + 1}` : app.candidateName.split(" ")[0],
+      Skills: breakdown.skills || 0,
+      GitHub: breakdown.github || 0,
+      Projects: breakdown.projects || 0,
+      Algorithmic: breakdown.algorithmic || 0,
+      Experience: breakdown.experience || 0,
+      Velocity: breakdown.velocity || 0,
+      Total: (app as any).liveScore || 0
+    };
+  });
+
+  const topScore = liveRankedCandidates.length > 0 ? (liveRankedCandidates[0] as any).liveScore : 0;
 
   if (isLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>
 
@@ -116,10 +180,116 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
            </div>
         </div>
 
+        {/* --- 🔥 THE "WHAT-IF" CONTROL PANEL 🔥 --- */}
+        <div className="bg-[#050A15] rounded-[32px] p-8 mb-8 text-white shadow-2xl relative overflow-hidden">
+           <div className="flex justify-between items-center mb-6 relative z-10">
+              <div>
+                <h3 className="text-2xl font-black flex items-center gap-2 mb-1">
+                  <SlidersHorizontal className="w-6 h-6 text-orange-500" />
+                  Live Algorithmic Re-Ranking
+                </h3>
+                <p className="text-sm text-slate-400 font-medium">Test what-if scenarios by adjusting the rubric. The leaderboard will recalculate in real-time.</p>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsCustomizing(!isCustomizing)}
+                className="bg-white/10 border-white/20 hover:bg-white/20 text-white font-bold rounded-xl"
+              >
+                {isCustomizing ? "Lock Weights" : "Adjust Rubric"}
+              </Button>
+           </div>
+
+           {isCustomizing ? (
+             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 relative z-10 animate-in fade-in slide-in-from-top-4">
+                {Object.entries(liveWeights).map(([key, value]) => (
+                  <div key={key} className="space-y-2">
+                    <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-slate-400">
+                      <span>{key}</span>
+                      <span className="text-orange-400">{value}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="100" value={value}
+                      onChange={(e) => setLiveWeights({...liveWeights, [key]: parseInt(e.target.value)})}
+                      className="w-full accent-orange-500"
+                    />
+                  </div>
+                ))}
+                <div className="col-span-full pt-4">
+                   <p className="text-xs text-slate-400 italic text-center font-bold">
+                     * Total Weight: <span className={Object.values(liveWeights).reduce((a,b)=>a+b,0) !== 100 ? "text-red-400" : "text-green-400"}>{Object.values(liveWeights).reduce((a,b)=>a+b,0)}%</span> (Adjust sliders to balance your ideal candidate profile)
+                   </p>
+                </div>
+             </div>
+           ) : (
+             <div className="flex flex-wrap gap-3 relative z-10">
+               {Object.entries(liveWeights).map(([key, value]) => (
+                 <span key={key} className="bg-white/5 border border-white/10 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest">
+                   {key}: <span className="text-orange-400">{value}%</span>
+                 </span>
+               ))}
+             </div>
+           )}
+        </div>
+
+        {/* --- 🔥 THE FORENSIC DELTA DASHBOARD (STACKED CHART) 🔥 --- */}
+        {liveRankedCandidates.length > 1 && (
+          <div className="bg-white p-8 rounded-[40px] shadow-xl border border-slate-200 mb-8 animate-in fade-in slide-in-from-bottom-4">
+            <div className="mb-8">
+              <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+                <Target className="w-6 h-6 text-indigo-500" /> Head-to-Head Score Breakdown
+              </h2>
+              <p className="text-sm text-slate-500 font-medium mt-1">
+                Visualizing exactly where candidates gained or lost points against your live rubric.
+              </p>
+            </div>
+
+            <div className="w-full h-[400px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={comparativeData}
+                  margin={{ top: 20, right: 30, left: -20, bottom: 5 }}
+                  barSize={60}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#64748b', fontWeight: 'bold', fontSize: 12 }} 
+                    dy={10}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#94a3b8', fontSize: 12 }} 
+                    domain={[0, 100]}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                    itemStyle={{ fontWeight: 'bold' }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 'bold', color: '#64748b' }} />
+                  
+                  <Bar dataKey="Skills" stackId="a" fill="#3b82f6" name="Tech Skills" radius={[0, 0, 4, 4]} />
+                  <Bar dataKey="GitHub" stackId="a" fill="#f97316" name="GitHub Code" />
+                  <Bar dataKey="Projects" stackId="a" fill="#8b5cf6" name="Projects" />
+                  <Bar dataKey="Algorithmic" stackId="a" fill="#10b981" name="DSA / LeetCode" />
+                  <Bar dataKey="Experience" stackId="a" fill="#f43f5e" name="Verified Exp" />
+                  <Bar dataKey="Velocity" stackId="a" fill="#eab308" name="Learning Velocity" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* --- LEADERBOARD --- */}
         <div className="space-y-6">
-          {applications.map((app) => {
+          {liveRankedCandidates.map((app, index) => {
             const analysisExt = app.analysis as any;
+            const liveScore = (app as any).liveScore;
+            const liveBreakdown = (app as any).liveBreakdown;
+            const pointDelta = topScore - liveScore;
 
             const chartData = [
               { subject: 'Language Mastery', A: analysisExt?.forensic_skill_graph?.language_mastery || 0 },
@@ -144,6 +314,9 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                     
                     {/* 1. Skill Graph Section */}
                     <div className="w-full lg:w-48 h-48 flex-shrink-0 bg-slate-50 rounded-2xl border border-slate-100 p-2 relative">
+                        <div className="absolute top-2 left-2 bg-slate-800 text-white font-black px-2 py-1 rounded-md text-[10px] z-10 shadow-sm">
+                          Rank #{index + 1}
+                        </div>
                         <ResponsiveContainer width="100%" height="100%">
                             <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
                                 <PolarGrid stroke="#e2e8f0" />
@@ -164,7 +337,6 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                           </div>
                         )}
                         
-                        {/* 🔥 NEW: OPEN SOURCE BADGE 🔥 */}
                         {analysisExt?.open_source_impact && (
                           <div className="flex items-center gap-1 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-purple-200">
                             <Network className="w-3 h-3 fill-current" /> Open Source Contributor
@@ -219,7 +391,7 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                         </div>
                       ) : null}
 
-                      {/* 🔥 NEW: IMPACT AREA 04 - EXPLICIT SCORE REASONING 🔥 */}
+                      {/* 🔥 IMPACT AREA 04 - EXPLICIT SCORE REASONING 🔥 */}
                       <div className="bg-slate-50 p-6 rounded-[24px] border border-slate-200 mt-4 mb-4 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
                         <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 flex items-center gap-1">
@@ -230,7 +402,7 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                         </p>
                       </div>
 
-                      {/* 🔥 NEW: IMPACT AREA 04 - BIAS AUDIT BADGE 🔥 */}
+                      {/* 🔥 IMPACT AREA 04 - BIAS AUDIT BADGE 🔥 */}
                       {analysisExt?.bias_audit && (
                         <div className="mt-2 mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-start gap-2 shadow-sm">
                           <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
@@ -240,7 +412,7 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                         </div>
                       )}
 
-                      {/* 🔥 NEW: ADAPTIVE MICRO-ASSESSMENT 🔥 */}
+                      {/* 🔥 ADAPTIVE MICRO-ASSESSMENT 🔥 */}
                       {analysisExt?.adaptive_assessment && (
                         <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl mb-4 shadow-sm max-w-2xl">
                            <h4 className="text-sm font-black text-indigo-900 tracking-tight flex items-center gap-2 mb-2">
@@ -255,17 +427,6 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                         </div>
                       )}
 
-                      {/* Display Coding Profiles if they exist */}
-                      {(app as any).passportBlocks?.codingProfiles && Object.keys((app as any).passportBlocks.codingProfiles).length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {Object.entries((app as any).passportBlocks.codingProfiles).map(([platform, data]: [string, any]) => (
-                            <span key={platform} className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-md text-[10px] font-black uppercase flex items-center gap-1">
-                              <Target className="w-3 h-3" /> {platform} Verified
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
                       <div className="flex flex-wrap gap-2">
                         {analysisExt?.verifiedSkills?.slice(0, 5).map((skill: string) => (
                             <span key={skill} className="bg-slate-50 text-slate-500 text-[10px] font-bold px-2 py-1 rounded border border-slate-100">#{skill}</span>
@@ -275,16 +436,23 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
 
                     {/* 3. Match Score & Accordion Trigger */}
                     <div className="lg:w-48 flex flex-col justify-center items-center bg-slate-50 rounded-2xl border border-slate-100 p-6">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Match Score</p>
-                        <span className={`text-5xl font-black mb-4 ${analysisExt?.spam_analysis?.is_likely_spam ? 'text-red-500' : 'text-slate-900'}`}>
-                          {analysisExt?.overallMatchScore || 0}
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-2">Live Match Score</p>
+                        <span className={`text-6xl font-black mb-1 ${analysisExt?.spam_analysis?.is_likely_spam ? 'text-red-500' : 'text-slate-900'}`}>
+                          {liveScore}
                         </span>
+                        
+                        {/* 🔥 DELTA BADGE 🔥 */}
+                        {index > 0 && (
+                          <div className="mb-4 inline-flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded-md text-[10px] font-black uppercase border border-red-100">
+                            -{pointDelta} Pts vs Leader
+                          </div>
+                        )}
                         
                         <Button 
                             variant="ghost" 
                             size="sm" 
                             onClick={() => setExpandedApp(expandedApp === app.id ? null : app.id!)}
-                            className="text-orange-600 font-bold text-xs hover:bg-orange-100 w-full"
+                            className="mt-2 text-orange-600 font-bold text-xs hover:bg-orange-100 w-full"
                         >
                             {expandedApp === app.id ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
                             Deep Audit
@@ -295,6 +463,46 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                 {/* 4. The Glass-Box Verification Matrix (Expandable) */}
                   {expandedApp === app.id && (
                     <div className="mt-8 pt-8 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
+                        
+                        {/* 🔥 NEW: GRANULAR SCORE BREAKDOWN 🔥 */}
+                        <div className="mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                          <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+                            <Target className="w-3 h-3" /> Live Mathematical Breakdown
+                          </h4>
+                          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Skills</span>
+                              <span className="text-xl font-black text-blue-500">{liveBreakdown.skills}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.skills}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">GitHub</span>
+                              <span className="text-xl font-black text-orange-500">{liveBreakdown.github}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.github}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Projects</span>
+                              <span className="text-xl font-black text-purple-500">{liveBreakdown.projects}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.projects}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">DSA</span>
+                              <span className="text-xl font-black text-emerald-500">{liveBreakdown.algorithmic}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.algorithmic}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Experience</span>
+                              <span className="text-xl font-black text-rose-500">{liveBreakdown.experience}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.experience}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded-xl text-center border border-slate-100 shadow-sm">
+                              <span className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Velocity</span>
+                              <span className="text-xl font-black text-yellow-500">{liveBreakdown.velocity}</span>
+                              <span className="text-[9px] text-slate-400 block mt-1">/ {liveWeights.velocity}</span>
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="flex items-center gap-2 mb-6">
                             <ShieldCheck className="w-5 h-5 text-orange-500" />
                             <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Signal Extraction & Verification Report</h4>

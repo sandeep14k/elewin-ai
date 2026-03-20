@@ -24,6 +24,14 @@ export interface Job {
     flagHighVelocity: boolean;
     interviewLink: string;
   };
+  scoringWeights?: {
+    skills: number;
+    github: number;
+    projects: number;
+    algorithmic: number;
+    experience: number;
+    velocity: number;
+  };
 }
 export interface SkillVerification {
   skill: string;

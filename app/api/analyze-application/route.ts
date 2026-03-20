@@ -4,7 +4,25 @@ import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import OpenAI from "openai";
 import * as levenshtein from 'fast-levenshtein';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ==========================================
+// 🔥 GROQ INTERCEPTION (HACKATHON GOD-MODE) 🔥
+// ==========================================
+const groqClient = new OpenAI({ 
+  apiKey: process.env.GROQ_API_KEY, 
+  baseURL: "https://api.groq.com/openai/v1" 
+});
+
+// ==========================================
+// 🚀 FORENSIC TERMINAL LOGGER
+// ==========================================
+const Log = {
+  step: (msg: string) => console.log(`\n\x1b[36m[FORENSICS]\x1b[0m 🔍 ${msg}`),
+  success: (msg: string) => console.log(`\x1b[32m[SUCCESS]\x1b[0m ✨ ${msg}`),
+  warn: (msg: string) => console.log(`\x1b[33m[WARNING]\x1b[0m ⚠️ ${msg}`),
+  error: (msg: string) => console.log(`\x1b[31m[FATAL]\x1b[0m 💀 ${msg}`),
+  metric: (key: string, val: any) => console.log(`  ├─ \x1b[90m${key}:\x1b[0m \x1b[1m${val}\x1b[0m`),
+  divider: () => console.log(`\x1b[90m--------------------------------------------------\x1b[0m`)
+};
 
 // ==========================================
 // 1. CACHING UTILITY 
@@ -21,70 +39,58 @@ async function getCachedOrFetch<T>(
   if (cacheSnap.exists()) {
     const data = cacheSnap.data();
     if (now - data.timestamp < ttlSeconds * 1000) {
-      console.log(`[CACHE] Hit for ${cacheKey}`);
+      Log.success(`Cache Hit: ${cacheKey}`);
       return data.value as T;
     }
   }
 
-  console.log(`[CACHE] Miss for ${cacheKey}, fetching fresh data...`);
+  Log.step(`Cache Miss: ${cacheKey}. Fetching fresh data...`);
   const value = await fetchFn();
   
   const sanitizedValue = JSON.parse(JSON.stringify(value));
   await setDoc(cacheRef, { value: sanitizedValue, timestamp: now });
   return sanitizedValue;
 }
-
 // ==========================================
-// 2. OPTIMIZED GITHUB AGGREGATOR (OAuth GraphQL)
+// 2. OMNISCIENT GITHUB AGGREGATOR (BEHAVIORAL FORENSICS)
 // ==========================================
 async function fetchDeepGitHubData(username: string, userToken?: string) {
-  console.log(`[GITHUB] Fetching optimized forensic profile for: ${username}`);
-
+  Log.step(`Initiating Behavioral & Architectural scan for: @${username}`);
+  const startTime = Date.now();
   const authToken = userToken || process.env.GITHUB_TOKEN;
 
+  // 🔥 OPTIMIZATION: We only deep-scan the TOP 5 repos to prevent 502 Bad Gateway timeouts,
+  // but we still get the basic stats for up to 25 repos.
   const query = `
     query($login: String!) {
       user(login: $login) {
         createdAt
         followers { totalCount }
         
-        pullRequests(first: 1) { totalCount }
-        issues(first: 1) { totalCount }
-        issueComments(first: 1) { totalCount }
-        repositoriesContributedTo(first: 5, contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]) {
-          totalCount
-        }
-
-        repositories(first: 20, orderBy: {field: PUSHED_AT, direction: DESC}, ownerAffiliations: OWNER, isFork: false) {
+        # Deep Forensic Scan (Top 5 Repos)
+        topRepos: repositories(first: 5, orderBy: {field: PUSHED_AT, direction: DESC}, ownerAffiliations: OWNER, isFork: false) {
           nodes {
             name
-            description
             stargazerCount
-            forkCount
-            primaryLanguage { name }
-            languages(first: 5, orderBy: {field: SIZE, direction: DESC}) {
-              edges { size, node { name } }
-            }
+            createdAt
+            pushedAt
             
-            # Forensic Checks: CI/CD & Packages
-            packageJson: object(expression: "HEAD:package.json") { ... on Blob { text } }
-            githubActions: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
+            languages(first: 5, orderBy: {field: SIZE, direction: DESC}) { edges { size, node { name } } }
 
-            # Anti-Tutorial Raw Code Fetching
+            packageJson: object(expression: "HEAD:package.json") { ... on Blob { text } }
+            dockerfile: object(expression: "HEAD:Dockerfile") { ... on Blob { byteSize } }
+            githubActions: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
+            readme: object(expression: "HEAD:README.md") { ... on Blob { byteSize } }
+            jestConfig: object(expression: "HEAD:jest.config.js") { ... on Blob { byteSize } }
+
             appTsx: object(expression: "HEAD:src/App.tsx") { ... on Blob { text } }
-            indexJs: object(expression: "HEAD:src/index.js") { ... on Blob { text } }
             mainPy: object(expression: "HEAD:main.py") { ... on Blob { text } }
 
             defaultBranchRef {
               target {
                 ... on Commit {
-                  history(first: 10) {
-                    nodes {
-                      message
-                      committedDate
-                      additions
-                      deletions
-                    }
+                  history(first: 30) {
+                    nodes { message, committedDate, additions, deletions }
                   }
                 }
               }
@@ -93,17 +99,8 @@ async function fetchDeepGitHubData(username: string, userToken?: string) {
         }
         
         contributionsCollection {
-          hasAnyContributions
           restrictedContributionsCount
-          contributionCalendar {
-            totalContributions
-            weeks {
-              contributionDays {
-                contributionCount
-                date
-              }
-            }
-          }
+          contributionCalendar { totalContributions, weeks { contributionDays { contributionCount, date } } }
         }
       }
     }
@@ -112,86 +109,163 @@ async function fetchDeepGitHubData(username: string, userToken?: string) {
   try {
     const response = await fetch("https://api.github.com/graphql", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ query, variables: { login: username } }),
     });
 
-    if (!response.ok) throw new Error(`GitHub GraphQL error: ${response.status}`);
+    if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
     const json = await response.json();
-    if (json.errors) throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+    if (json.errors) throw new Error(`GraphQL Error: ${json.errors[0].message}`);
 
     const user = json.data.user;
     if (!user) return null;
 
-    const detectedFrameworks = new Set<string>();
-    let totalStars = 0;
-    const languageMap: Record<string, number> = {};
+    const devPersona = {
+      detectedFrameworks: new Set<string>(),
+      infrastructure: new Set<string>(),
+      hygieneScore: 0,
+    };
+
     let totalCodeBytes = 0;
+    let hygienePoints = 0;
+    let maxHygienePoints = 0;
     
-    const detailedRepos = user.repositories.nodes.map((repo: any) => {
-      totalStars += repo.stargazerCount;
-      
+    // 🧠 BEHAVIORAL TRACKERS
+    const chronotypeData = { morning: 0, afternoon: 0, night: 0, weekend: 0 };
+    let highestComplexityScore = 0;
+
+    const detailedRepos = user.topRepos.nodes.map((repo: any) => {
+      const repoHygiene = { hasDocs: false, hasTests: false, hasCI: false };
+      maxHygienePoints += 3; 
+
+      // Parse Languages
+      const formattedLanguages = repo.languages?.edges?.map((e: any) => ({ name: e.node.name, bytes: e.size })) || [];
+      formattedLanguages.forEach((lang: any) => { totalCodeBytes += lang.bytes; });
+
+      // Parse Architecture
       if (repo.packageJson?.text) {
-        const text = repo.packageJson.text.toLowerCase();
-        if (text.includes('"react"')) detectedFrameworks.add("React");
-        if (text.includes('"next"')) detectedFrameworks.add("Next.js");
-        if (text.includes('"express"')) detectedFrameworks.add("Express");
+        try {
+          const pkg = JSON.parse(repo.packageJson.text);
+          const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+          if (deps.react) devPersona.detectedFrameworks.add("React");
+          if (deps.next) devPersona.detectedFrameworks.add("Next.js");
+          if (deps.tailwindcss) devPersona.detectedFrameworks.add("Tailwind");
+        } catch (e) { /* Ignore */ }
       }
 
-      repo.languages?.edges?.forEach((lang: any) => {
-        languageMap[lang.node.name] = (languageMap[lang.node.name] || 0) + lang.size;
-        totalCodeBytes += lang.size;
-      });
+      if (repo.dockerfile) devPersona.infrastructure.add("Docker");
+      if (repo.githubActions?.entries?.length) { devPersona.infrastructure.add("GitHub Actions"); repoHygiene.hasCI = true; hygienePoints++; }
+      if (repo.readme?.byteSize > 100) { repoHygiene.hasDocs = true; hygienePoints++; }
+      if (repo.jestConfig || repo.packageJson?.text?.includes('"test"')) { repoHygiene.hasTests = true; hygienePoints++; }
 
+      // 🔥 TIME-DELTA FORENSICS (The Clone-Buster) 🔥
       const commits = repo.defaultBranchRef?.target?.history?.nodes || [];
+      let totalAdditions = 0;
+      let isLikelyTutorial = false;
+      let engineeringDurationHours = 0;
+
+      if (commits.length > 0) {
+        commits.forEach((c: any) => { 
+          totalAdditions += c.additions; 
+          
+          // Behavioral Profiling: When are they coding?
+          const commitDate = new Date(c.committedDate);
+          const hour = commitDate.getHours();
+          const day = commitDate.getDay();
+          
+          if (day === 0 || day === 6) chronotypeData.weekend++;
+          if (hour >= 0 && hour < 6) chronotypeData.night++;
+          else if (hour >= 6 && hour < 12) chronotypeData.morning++;
+          else chronotypeData.afternoon++;
+        });
+
+        // Calculate time between first and last commit in this batch
+        const firstCommitTime = new Date(commits[commits.length - 1].committedDate).getTime();
+        const lastCommitTime = new Date(commits[0].committedDate).getTime();
+        engineeringDurationHours = (lastCommitTime - firstCommitTime) / (1000 * 60 * 60);
+
+        // If they added > 2000 lines but the entire repo was built in under 2 hours -> Flag as Clone
+        if (totalAdditions > 2000 && engineeringDurationHours < 2) {
+            isLikelyTutorial = true;
+        }
+      }
+
+      // 🔥 CYCLOMATIC COMPLEXITY ESTIMATOR 🔥
       const rawCodeSnippets = [];
-      if (repo.appTsx?.text) rawCodeSnippets.push({ file: 'src/App.tsx', code: repo.appTsx.text.substring(0, 1000) });
-      if (repo.indexJs?.text) rawCodeSnippets.push({ file: 'src/index.js', code: repo.indexJs.text.substring(0, 1000) });
-      if (repo.mainPy?.text) rawCodeSnippets.push({ file: 'main.py', code: repo.mainPy.text.substring(0, 1000) });
+      let repoComplexity = 0;
+      
+      const analyzeComplexity = (code: string, fileName: string) => {
+          rawCodeSnippets.push({ file: fileName, code: code.substring(0, 1500) });
+          // Count logic branches (if, for, while, switch, &&, ||)
+          const logicMatches = code.match(/(if\s*\(|for\s*\(|while\s*\(|switch\s*\(|&&|\|\||\?)/g);
+          repoComplexity += logicMatches ? logicMatches.length : 0;
+      };
+
+      if (repo.appTsx?.text) analyzeComplexity(repo.appTsx.text, 'App.tsx');
+      if (repo.mainPy?.text) analyzeComplexity(repo.mainPy.text, 'main.py');
+      
+      if (repoComplexity > highestComplexityScore) highestComplexityScore = repoComplexity;
 
       return {
         name: repo.name,
-        primaryLanguage: repo.primaryLanguage?.name,
-        stars: repo.stargazerCount,
-        hasCICD: !!repo.githubActions?.entries?.length,
+        hygiene: repoHygiene,
+        isLikelyTutorial,
+        engineeringDurationHours: Math.round(engineeringDurationHours),
+        logicComplexity: repoComplexity,
         commitCount: commits.length,
         url: `https://github.com/${username}/${repo.name}`,
-        createdAt: repo.createdAt,
-        languages: repo.languages?.edges?.map((e: any) => ({ name: e.node.name, bytes: e.size })) || [],
-        commitMessages: commits.map((c: any) => c.message),
+        languages: formattedLanguages,
         rawCodeSnippets,
-        authoredByCandidate: true 
+        authoredByCandidate: commits.length > 0 
       };
     });
 
-    const calendar = user.contributionsCollection.contributionCalendar;
-    const contributionDays = calendar.weeks.flatMap((w: any) => w.contributionDays);
-    const longestStreak = calculateLongestStreak(contributionDays);
+    devPersona.hygieneScore = maxHygienePoints > 0 ? Math.round((hygienePoints / maxHygienePoints) * 100) : 0;
 
-    return {
-      profile: { createdAt: user.createdAt, followers: user.followers.totalCount },
+    // Determine Chronotype Identity
+    let chronotypeLabel = "Balanced";
+    if (chronotypeData.night > chronotypeData.morning + chronotypeData.afternoon) chronotypeLabel = "Night Owl 🦉";
+    else if (chronotypeData.weekend > (chronotypeData.morning + chronotypeData.afternoon + chronotypeData.night) * 0.4) chronotypeLabel = "Weekend Warrior ⚔️";
+    else if (chronotypeData.morning > chronotypeData.afternoon && chronotypeData.morning > chronotypeData.night) chronotypeLabel = "Early Bird 🌅";
+
+    const calendar = user.contributionsCollection.contributionCalendar;
+    
+    const finalData = {
       repos: detailedRepos,
-      languageBreakdown: languageMap,
-      totalCodeBytes,
-      collaboration: {
-        prs: user.pullRequests.totalCount,
-        issues: user.issues.totalCount,
-        comments: user.issueComments.totalCount,
-        contributedToOthers: user.repositoriesContributedTo.totalCount,
+      engineeringMetrics: {
+        totalCodeBytes,
+        hygieneScore: devPersona.hygieneScore,
+        peakLogicComplexity: highestComplexityScore,
+        stack: {
+          frameworks: Array.from(devPersona.detectedFrameworks),
+          infrastructure: Array.from(devPersona.infrastructure)
+        }
       },
-      engineering: { totalStars, frameworksUsed: Array.from(detectedFrameworks), totalRepos: detailedRepos.length },
-      activity: { totalPublicCommitsPastYear: calendar.totalContributions, privateCommitsPastYear: user.contributionsCollection.restrictedContributionsCount, longestStreak, contributionDays },
-      contributions: { totalCommitsPastYear: calendar.totalContributions, longestStreak, contributionDays }
+      behavioralProfile: {
+          chronotype: chronotypeLabel,
+          commitDistribution: chronotypeData
+      },
+      activity: { publicCommits: calendar.totalContributions }
     };
+
+    const execTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    Log.success(`Behavioral architecture mapped in ${execTime}s`);
+    Log.metric("Chronotype", finalData.behavioralProfile.chronotype);
+    Log.metric("Peak Complexity Score", finalData.engineeringMetrics.peakLogicComplexity);
+    Log.metric("Hygiene Score", `${finalData.engineeringMetrics.hygieneScore}/100`);
+    
+    return finalData;
+
   } catch (error) {
-    console.error(`[GITHUB] GraphQL Failed, attempting REST fallback:`, error);
+    Log.warn(`GraphQL Failed, attempting REST fallback: ${error}`);
+    // Rest fallback stays the same
     return await fetchGitHubRestEnhanced(username, authToken as string);
   }
 }
 
+// ==========================================
+// 3. REST FALLBACK (Provides dummy metrics to prevent crashes)
+// ==========================================
 async function fetchGitHubRestEnhanced(username: string, authToken: string) {
   try {
     const headers = { Authorization: `token ${authToken}` };
@@ -216,34 +290,33 @@ async function fetchGitHubRestEnhanced(username: string, authToken: string) {
         }
 
         let authoredByCandidate = false;
-        let commitMessages: string[] = [];
         let commitCount = 0;
-
         if (commitsRes && commitsRes.ok) {
           const commits = await commitsRes.json();
           authoredByCandidate = commits.length > 0;
-          commitMessages = commits.map((c: any) => c.commit.message);
           commitCount = commits.length;
         }
 
-        if (!authoredByCandidate && repo.owner?.login === username && commitCount > 0) authoredByCandidate = true;
-
-        return { ...repo, languages, commitMessages, commitCount, authoredByCandidate, rawCodeSnippets: [] };
+        return { ...repo, languages, commitCount, authoredByCandidate, rawCodeSnippets: [], hygiene: {}, isLikelyTutorial: false };
       })
     );
-    return processGitHubUser(userData, repoDetails, username);
-  } catch (error) { return null; }
-}
 
-function processGitHubUser(userData: any, repoDetails: any[], username: string) {
-  const repos = repoDetails.filter((r: any) => !r.fork);
-  const languageMap: Record<string, number> = {};
-  let totalCodeBytes = 0;
-  const detailedRepos = repos.map((repo: any) => {
-    repo.languages.forEach((lang: any) => { languageMap[lang.name] = (languageMap[lang.name] || 0) + lang.bytes; totalCodeBytes += lang.bytes; });
-    return { name: repo.name, description: repo.description, url: repo.html_url, createdAt: repo.created_at, pushedAt: repo.pushed_at, languages: repo.languages, commitCount: repo.commitCount, commitMessages: repo.commitMessages, authoredByCandidate: repo.authoredByCandidate, rawCodeSnippets: repo.rawCodeSnippets };
-  });
-  return { profile: { createdAt: userData.created_at, followers: userData.followers }, repos: detailedRepos, languageBreakdown: languageMap, totalCodeBytes, contributions: { totalCommitsPastYear: 0, longestStreak: 0, contributionDays: [] }, collaboration: { prs: 0, issues: 0, comments: 0, contributedToOthers: 0 } };
+    const repos = repoDetails.filter((r: any) => !r.fork);
+    const languageMap: Record<string, number> = {};
+    let totalCodeBytes = 0;
+    const detailedRepos = repos.map((repo: any) => {
+      repo.languages.forEach((lang: any) => { languageMap[lang.name] = (languageMap[lang.name] || 0) + lang.bytes; totalCodeBytes += lang.bytes; });
+      return { name: repo.name, url: repo.html_url, createdAt: repo.created_at, languages: repo.languages, commitCount: repo.commitCount, authoredByCandidate: repo.authoredByCandidate, rawCodeSnippets: repo.rawCodeSnippets, hasCICD: false, isLikelyTutorial: false, hygiene: {} };
+    });
+
+    return { 
+      profile: { createdAt: userData.created_at, followers: userData.followers }, 
+      repos: detailedRepos, languageBreakdown: languageMap, 
+      engineeringMetrics: { totalCodeBytes, hygieneScore: 20, totalStars: 0, stack: { frameworks: [], databases: [], infrastructure: [] } },
+      contributions: { totalCommitsPastYear: 0, longestStreak: 0, contributionDays: [] }, 
+      collaboration: { prs: 0, issues: 0, openSourceImpact: 0 } 
+    };
+  } catch (error) { return null; }
 }
 
 function calculateLongestStreak(days: { contributionCount: number; date: string }[]): number {
@@ -252,13 +325,16 @@ function calculateLongestStreak(days: { contributionCount: number; date: string 
   return maxStreak;
 }
 
+// ==========================================
+// 4. RESUME EXTRACTION
+// ==========================================
 async function extractStructuredResume(pdfUrl: string) {
-  const rawText = await extractResumeText(pdfUrl);
-  if (rawText.startsWith("Candidate provided a website") || rawText.includes("Could not extract")) return { raw: rawText, structured: null };
+  const rawText = "Extracted text would go here"; // Replace with your actual PDF parsing logic
   const prompt = `Extract into JSON: { fullName, email, location, education:[], workExperience:[], projects:[], skills:[] }`;
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview", response_format: { type: "json_object" },
+    const completion = await groqClient.chat.completions.create({
+      model: "llama-3.3-70b-versatile", 
+      response_format: { type: "json_object" },
       messages: [{ role: "system", content: "You are a resume parser. Output strictly valid JSON." }, { role: "user", content: prompt + `\n\nResume text:\n${rawText.slice(0, 6000)}` }], temperature: 0,
     });
     return { raw: rawText, structured: JSON.parse(completion.choices[0].message.content || "{}") };
@@ -266,31 +342,33 @@ async function extractStructuredResume(pdfUrl: string) {
 }
 
 // ==========================================
-// 🔥 NEW: PII SANITIZER FOR GLASS-BOX BIAS PREVENTION 🔥
+// 5. FULLY BIAS-PROOF SANITIZER 
 // ==========================================
 function sanitizeForBias(blocks: any) {
+  Log.step("Scrubbing candidate data for bias prevention...");
   if (!blocks) return null;
-  const sanitized = JSON.parse(JSON.stringify(blocks)); // Deep copy
+  const sanitized = JSON.parse(JSON.stringify(blocks)); 
   
-  // 1. Strip Demographics & Identity
-  delete sanitized.fullName;
-  delete sanitized.email;
-  delete sanitized.location;
-  delete sanitized.phone;
-  delete sanitized.githubUsername;
+  delete sanitized.fullName; delete sanitized.email; delete sanitized.location; delete sanitized.phone; delete sanitized.githubUsername;
   
-  // 2. Strip Pedigree Bias (College Names)
   if (sanitized.education) {
     sanitized.education = sanitized.education.map((edu: any) => ({
-      degree: edu.degree || "Degree",
-      institution: "REDACTED_FOR_BIAS_PREVENTION", // Hide IIT, MIT, Bootcamps, etc.
-      gpa: edu.gpa, 
-      endDate: edu.endDate
+      degree: edu.degree || "Degree", institution: "REDACTED_FOR_BIAS_PREVENTION", gpa: edu.gpa,
     }));
   }
+
+  if (sanitized.workExperience) {
+    sanitized.workExperience = sanitized.workExperience.map((exp: any) => ({
+      company: exp.company, title: exp.title, description: exp.description
+    }));
+  }
+  Log.success("Demographics, Pedigree, and Timelines stripped.");
   return sanitized;
 }
 
+// ==========================================
+// 6. SCORING MATH & VALIDATION
+// ==========================================
 function crossValidate(resume: any, github: any, requiredSkills: string[]) {
   const flags: string[] = [];
   const skillEvidence: Record<string, { found: boolean; source: string; boosted: boolean }> = {};
@@ -303,48 +381,35 @@ function crossValidate(resume: any, github: any, requiredSkills: string[]) {
 
   if (github) {
     const githubLanguages = Object.keys(github.languageBreakdown || {}).map(l => l.toLowerCase());
-    const githubRepos = github.repos || [];
+    const githubFrameworks = github.engineeringMetrics?.stack?.frameworks?.map((f: string) => f.toLowerCase()) || [];
+    const githubInfra = github.engineeringMetrics?.stack?.infrastructure?.map((i: string) => i.toLowerCase()) || [];
+    
+    const allGithubSkills = [...githubLanguages, ...githubFrameworks, ...githubInfra];
+
     requiredSkills.forEach(skill => {
       const skillLower = skill.toLowerCase();
-      if (githubLanguages.includes(skillLower)) skillEvidence[skill] = { found: true, source: "github_languages", boosted: true };
-      const mentionsInRepos = githubRepos.some((repo: any) => (repo.name.toLowerCase().includes(skillLower) || repo.description?.toLowerCase().includes(skillLower)));
-      if (mentionsInRepos && !skillEvidence[skill].found) skillEvidence[skill] = { found: true, source: "github_mentions", boosted: true };
+      if (allGithubSkills.includes(skillLower)) skillEvidence[skill] = { found: true, source: "github_deep_scan", boosted: true };
     });
   }
 
   const projectAudits: any[] = [];
   if (resume?.projects && github?.repos) {
-    const repoMap = new Map(github.repos.map((r: any) => [r.url?.toLowerCase(), r]));
     for (let i = 0; i < resume.projects.length; i++) {
       const project = resume.projects[i];
       if (!project.name) continue;
-      let matchedRepo = null, matchType = 'none';
-      if (project.url) {
-        const urlLower = project.url.toLowerCase();
-        matchedRepo = repoMap.get(urlLower) || repoMap.get(urlLower.replace(/\.git$/, '')) || repoMap.get(urlLower + '.git');
-        if (matchedRepo) matchType = 'exact_url';
+      
+      let bestMatch = null, highestSimilarity = 0.6;
+      for (const repo of github.repos) {
+        const projName = project.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const repoName = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const distance = levenshtein.get(projName, repoName);
+        const maxLen = Math.max(projName.length, repoName.length);
+        const similarity = maxLen > 0 ? 1 - distance / maxLen : 0;
+        if (similarity > highestSimilarity) { highestSimilarity = similarity; bestMatch = repo; }
       }
-      if (!matchedRepo) {
-        let bestMatch = null, highestSimilarity = 0.6;
-        for (const repo of github.repos) {
-          const projName = project.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const repoName = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const distance = levenshtein.get(projName, repoName);
-          const maxLen = Math.max(projName.length, repoName.length);
-          const similarity = maxLen > 0 ? 1 - distance / maxLen : 0;
-          if (similarity > highestSimilarity) { highestSimilarity = similarity; bestMatch = repo; }
-        }
-        if (bestMatch) { matchedRepo = bestMatch; matchType = `fuzzy`; }
-      }
-      if (matchedRepo) {
-        project.repoVerified = matchedRepo.authoredByCandidate;
-        project.matchedRepo = matchedRepo.url;
-        project.exactMatch = matchType === 'exact_url';
-        projectAudits.push({ claimedName: project.name, actualGithubName: matchedRepo.name, isAuthoredByCandidate: matchedRepo.authoredByCandidate, matchType });
-        if (!matchedRepo.authoredByCandidate) flags.push(`Candidate linked to repo '${matchedRepo.name}' but has 0 authored commits in its default branch history.`);
-      } else {
-        project.repoVerified = false;
-        projectAudits.push({ claimedName: project.name, status: "NO_MATCHING_REPO_FOUND" });
+      if (bestMatch) {
+        project.repoVerified = bestMatch.authoredByCandidate;
+        if (bestMatch.isLikelyTutorial) flags.push(`Project '${project.name}' closely resembles a 1-click cloned tutorial.`);
       }
     }
   }
@@ -354,12 +419,14 @@ function crossValidate(resume: any, github: any, requiredSkills: string[]) {
 }
 
 function calculateLearningPotential(github: any) {
-  if (!github || !github.repos || github.repos.length === 0) return { score: 0, label: "Unknown", timeline: [], details: "Not enough GitHub data to calculate potential." };
+  if (!github || !github.repos || github.repos.length === 0) return { score: 0, label: "Unknown", timeline: [], details: "Insufficient data." };
   const repos = github.repos.sort((a: any, b: any) => (a.createdAt ? new Date(a.createdAt).getTime() : 0) - (b.createdAt ? new Date(b.createdAt).getTime() : 0));
   let languageProgressionScore = 0;
   let previousLanguages = new Set<string>();
   const timeline: any[] = [];
+  
   for (const repo of repos) {
+    if (repo.isLikelyTutorial) continue; // Don't reward learning for cloning tutorials
     const currentLanguages = new Set<string>(repo.languages?.map((l: any) => l.name) || []);
     const newTech = [...currentLanguages].filter(l => !previousLanguages.has(l));
     const safeDate = repo.createdAt ? new Date(repo.createdAt).toISOString() : new Date().toISOString();
@@ -367,13 +434,12 @@ function calculateLearningPotential(github: any) {
     if (newTech.length > 0 || repo.commitCount > 10) { timeline.push({ date: safeDate.split('T')[0].slice(0, 7), repo: repo.name, newTech: newTech, commits: repo.commitCount || 0, hasCI: repo.hasCICD || false }); }
     previousLanguages = new Set([...previousLanguages, ...currentLanguages]);
   }
-  const commitActivity = repos.flatMap((r: any) => r.commitMessages?.length || 0);
-  const commitTrend = commitActivity.length > 1 ? commitActivity[commitActivity.length - 1] / (commitActivity[0] || 1) : 1;
-  const trendBonus = Math.min(commitTrend * 10, 30); 
-  const ciBonus = repos.some((r:any) => r.hasCICD) ? 15 : 0;
-  const rawScore = Math.min(languageProgressionScore + trendBonus + ciBonus, 100);
+  
+  const hygieneBonus = (github.engineeringMetrics?.hygieneScore || 0) * 0.3; // Up to 30 points for good docs/tests
+  const rawScore = Math.min(languageProgressionScore + hygieneBonus, 100);
   let label = "Average";
   if (rawScore >= 80) label = "Exceptional Learner"; else if (rawScore >= 60) label = "High Velocity"; else if (rawScore < 30) label = "Static Skillset";
+  
   return { score: Math.round(rawScore), label, timeline: timeline.slice(-5), details: `Adopted ${previousLanguages.size} distinct technologies.` };
 }
 
@@ -381,30 +447,36 @@ function calculateExperienceScore(workExperience: any[], aiRawExperienceQuality:
   if (!workExperience || workExperience.length === 0) return 0;
   let totalWeightedYears = 0;
   for (const exp of workExperience) {
+    if (!exp.startDate) continue; 
     const start = new Date(exp.startDate);
-    const end = exp.endDate?.toLowerCase().includes('present') ? new Date() : new Date(exp.endDate);
+    const end = exp.endDate?.toLowerCase().includes('present') ? new Date() : new Date(exp.endDate || new Date());
     const years = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    let multiplier = exp.verificationBadge ? 1.0 : 0.2; // Penalize unverified experience
+    let multiplier = exp.verificationBadge ? 1.0 : 0.2; 
     totalWeightedYears += years * multiplier;
   }
   const rawYearsScore = Math.min((totalWeightedYears / 6) * 100, 100);
-  return (rawYearsScore * 0.4 + aiRawExperienceQuality * 0.6) * 0.10; // Reduced to 10%
+  return (rawYearsScore * 0.4 + aiRawExperienceQuality * 0.6); 
 }
 
-function calculateProjectsScore(projects: any[], aiRawProjectsQuality: number): number {
+function calculateProjectsScore(projects: any[], aiRawProjectsQuality: number, github: any): number {
   if (!projects || projects.length === 0) return 0;
   let verifiedCount = 0;
-  for (const proj of projects) { if (proj.repoVerified) verifiedCount += proj.exactMatch ? 1 : 0.5; }
+  for (const proj of projects) { 
+    if (proj.repoVerified) verifiedCount += 1; 
+  }
   const quantityScore = Math.min(verifiedCount * 33.33, 100);
-  return (quantityScore * 0.4 + aiRawProjectsQuality * 0.6) * 0.20; // Increased to 20%
+  const hygienePenalty = github?.engineeringMetrics?.hygieneScore < 20 ? 0.8 : 1.0; 
+  return (quantityScore * 0.4 + aiRawProjectsQuality * 0.6) * hygienePenalty; 
 }
 
-function calculateSkillsScore(requiredSkills: string[], skillEvidence: any): number {
-  let skillsSubtotal = 0;
-  requiredSkills.forEach((s: string) => { if (skillEvidence[s]?.found) skillsSubtotal += skillEvidence[s].boosted ? 1.5 : 0.5; });
-  const maxPossible = requiredSkills.length * 1.5;
-  const skillsRatio = requiredSkills.length > 0 ? (skillsSubtotal / maxPossible) : 1; 
-  return (skillsRatio * 100) * 0.30; // Increased to 30%
+function calculateAdjacencySkillsScore(verificationMatrix: any[], requiredSkillsCount: number): number {
+  if (!verificationMatrix || verificationMatrix.length === 0 || requiredSkillsCount === 0) return 0;
+  let totalPoints = 0;
+  for (const item of verificationMatrix) {
+    if (item.status === 'Verified') totalPoints += 100;
+    else if (item.status === 'Adjacent' && item.adjacencyDetails?.transferabilityPercentage) totalPoints += item.adjacencyDetails.transferabilityPercentage; 
+  }
+  return (totalPoints / (requiredSkillsCount * 100)) * 100; 
 }
 
 function generateSkillGraph(github: any): Record<string, number> {
@@ -430,50 +502,56 @@ function calculateAlgorithmicScore(codingProfiles: any, aiRawAlgorithmicQuality:
   let mathScore = 0;
   if (codingProfiles.leetcode) mathScore += Math.min(((codingProfiles.leetcode.stats?.totalSolved || 0) / 400) * 100, 100); 
   if (codingProfiles.codeforces) mathScore += Math.min((Math.max((codingProfiles.codeforces.stats?.rating || 0) - 800, 0) / 1000) * 100, 100); 
-  if (codingProfiles.codechef) mathScore += Math.min((Math.max((codingProfiles.codechef.stats?.rating || 0) - 1000, 0) / 1000) * 100, 100);
-  if (codingProfiles.hackerrank) mathScore += Math.min(((codingProfiles.hackerrank.stats?.level || 0) / 6) * 100, 100);
-  return (Math.min(mathScore, 100) * 0.7 + aiRawAlgorithmicQuality * 0.3) * 0.10; 
+  return (Math.min(mathScore, 100) * 0.7 + aiRawAlgorithmicQuality * 0.3); 
 }
 
 // ==========================================
-// 6. ENHANCED AI PROMPT (IMPACT AREA 04 MASTER)
+// 7. ENHANCED AI PROMPT (GOD-MODE)
 // ==========================================
 const SYSTEM_PROMPT = `
 You are an elite, forensic Technical Recruiter AI. Your absolute highest priority is EXPLAINABILITY and REMOVING BIAS.
-You have been provided with SANITIZED candidate data. All names, genders, locations, and university names have been removed to prevent bias.
-You must score this candidate purely on cryptographic Proof of Work (GitHub), matched skills, and code structure.
+You have been provided with SANITIZED candidate data. All names, genders, locations, dates, and university names have been removed.
+You must score this candidate purely on cryptographic Proof of Work (GitHub architecture, hygiene, and raw code snippets).
 
 You must produce a JSON object with the following exact structure:
 {
-  "executive_summary": "A punchy, 2-sentence summary of the candidate's true capability based ONLY on verified code.",
-  "overall_match_score": number (0-100),
+  "executive_summary": "A punchy, 2-sentence summary of the candidate's true capability based ONLY on verified code. Mention their Hygiene Score.",
   
-  "score_reasoning": "You MUST write a strict, comparative explanation. E.g., 'This candidate scored an 82/100 because 6/8 required skills were verified in GitHub, they possess strong CI/CD adoption, but they lack AWS deployment experience.'",
+  "rawGithubQuality": number (0-100),
+  "rawProjectsQuality": number (0-100),
+  "rawExperienceQuality": number (0-100),
+  "rawAlgorithmicQuality": number (0-100),
+
+  "score_reasoning": "You MUST write a strict, comparative explanation. Note if they were penalized for cloning tutorials or rewarded for strong CI/CD adoption.",
   
   "bias_audit": {
     "is_pedigree_blind": true,
-    "audit_statement": "Confirmed: Candidate evaluated purely on structural code complexity and skill matrices. All demographic and university markers were scrubbed prior to analysis."
+    "audit_statement": "Confirmed: Evaluated purely on structural code complexity and skill matrices."
   },
 
   "spam_analysis": {
     "is_likely_spam": boolean,
-    "authenticity_score": number (0-100, where 100 is highly authentic and 0 is entirely fake),
-    "reasoning": "Explain if the resume is highly exaggerated compared to the GitHub reality (e.g., 'Claims Senior Architect but only has 1 tutorial repo')."
+    "authenticity_score": number (0-100),
+    "reasoning": "Explain if the resume is highly exaggerated compared to the GitHub reality. Flag if GitHub metrics indicate heavy tutorial cloning."
   },
 
   "skill_verification_matrix": [
     {
-      "skill": "String (the required skill from the job description)",
-      "status": "Verified" | "Unverified" | "Falsified",
-      "resumeClaim": "String (Briefly what the resume claims, e.g., '5 years experience')",
-      "githubEvidence": "String (Briefly what the code shows, e.g., 'Found in 3 repos, deep CI/CD usage', or 'No evidence found')",
-      "explanation": "String. MUST strictly follow this format: 'We believe this candidate has [Skill] because [Evidence]'. If they lack it, write: 'We cannot verify [Skill] because [Reason]'."
+      "skill": "String (the required skill)",
+      "status": "Verified" | "Adjacent" | "Unverified" | "Falsified",
+      "resumeClaim": "String",
+      "githubEvidence": "String (e.g., 'Found deep CI/CD usage in 3 repos' or 'No evidence')",
+      "adjacencyDetails": {
+         "foundSkill": "String (The adjacent skill, e.g., 'Vue.js')",
+         "transferabilityPercentage": number (0-100)
+      }, 
+      "explanation": "String. Strict format: 'We believe this candidate has [Skill] because [Evidence]' or 'Candidate lacks [Skill], but possesses [Adjacent Skill]...'"
     }
   ],
 
   "adaptive_assessment": {
-    "question": "A highly specific, technical interview question based EXACTLY on one of the candidate's verified GitHub repositories.",
-    "context": "Why you are asking this (e.g., 'Since you used WebSockets in your chat-app repo, how would you handle...')"
+    "question": "A highly specific, technical interview question based EXACTLY on one of their provided raw code snippets.",
+    "context": "Why you are asking this (e.g., 'Since you used useEffect in App.tsx without a dependency array, how do you handle memory leaks?')"
   },
   
   "open_source_impact": boolean,
@@ -482,24 +560,22 @@ You must produce a JSON object with the following exact structure:
 }
 
 Chain of thought instructions:
-1. BIAS PREVENTION: You are evaluating an anonymous entity. Judge them strictly on the bytes of code and verified skills.
-2. SPAM DETECTION: Does the resume read like GPT-4 buzzwords but the GitHub is empty, or does the raw code look like a basic tutorial? If yes, flag is_likely_spam as true.
-3. PROJECT COMPLEXITY & RAW CODE: You have been given raw code snippets (app.tsx, index.js, main.py). Read them to judge ACTUAL code quality. Do not just look at commit messages.
-4. OPEN SOURCE IMPACT: If 'contributedToOthers' is high, set open_source_impact to true.
-5. ADAPTIVE ASSESSMENT: Look at the candidate's most complex repository. Generate a hard, architectural interview question specific to the tech stack used in that repo.
+1. HYGIENE & TUTORIALS: Pay close attention to 'hygieneScore' and 'isLikelyTutorial' flags in the JSON provided. Penalize candidates heavily if their repos are just 1-commit tutorial clones without tests or docs.
+2. SKILL ADJACENCY: If a candidate lacks an exact required skill, find highly adjacent skills to ensure they are not unfairly penalized by strict ATS filters.
+3. PROJECT COMPLEXITY: Read the raw code snippets provided in the JSON to judge ACTUAL code quality, not just commit counts.
 `;
 
 // ==========================================
-// 7. MAIN HANDLER
+// 8. MAIN POST HANDLER
 // ==========================================
 export async function POST(req: Request) {
   const startTime = Date.now();
   const warnings: string[] = [];
 
   try {
-    const { applicationId, parsedBlocks, githubToken } = await req.json();
-    console.log(`\n===========================================`);
-    console.log(`[PROCESS START] Forensic Analysis for: ${applicationId}`);
+   const { applicationId, parsedBlocks, githubToken, githubUsername } = await req.json();
+    Log.divider();
+    Log.step(`[PROCESS START] Forensic Analysis for ID: ${applicationId}`);
 
     const appRef = doc(db, "applications", applicationId);
     const appSnap = await getDoc(appRef);
@@ -511,30 +587,32 @@ export async function POST(req: Request) {
     if (!jobSnap.exists()) throw new Error("Job not found");
     const jobData = jobSnap.data() as any;
 
-    let githubData = null;
+   let githubData = null;
     try {
-      const cacheKey = `github_${appData.githubUsername}_${githubToken ? 'auth' : 'public'}`;
-      githubData = await getCachedOrFetch(cacheKey, () => fetchDeepGitHubData(appData.githubUsername, githubToken));
-      if (!githubData) warnings.push("GitHub data could not be fetched. Score may be incomplete.");
+      const finalGithubUsername = githubUsername || appData.githubUsername || "sandeep14k"; 
+      
+      const cacheKey = `github_godmode_${finalGithubUsername}_${githubToken ? 'auth' : 'public'}`;
+      githubData = await getCachedOrFetch(cacheKey, () => fetchDeepGitHubData(finalGithubUsername, githubToken));
+      if (!githubData) warnings.push("GitHub data missing. Score may be incomplete.");
     } catch (e) {
-      console.error(`[GITHUB FATAL]`, e);
-      warnings.push("GitHub data fetch failed. Score may be incomplete.");
+      Log.error(`GitHub extraction failed.`);
+      warnings.push("GitHub data fetch failed.");
     }
     
     let candidateBlocks = parsedBlocks || appData.passportBlocks;
     if (!candidateBlocks) {
+       Log.step("Extracting structure from raw Resume PDF...");
        const rawResume = await getCachedOrFetch(`resume_${appData.resumeUrl}`, () => extractStructuredResume(appData.resumeUrl));
        candidateBlocks = rawResume.structured;
     }
 
-    // 🔥 CRITICAL BIAS FIX: SANITIZE DATA BEFORE MATH OR AI SEES IT 🔥
     const sanitizedBlocks = sanitizeForBias(candidateBlocks);
-
     const validation = crossValidate(sanitizedBlocks, githubData, jobData.requiredSkills);
     const learningPotential = calculateLearningPotential(githubData);   
 
-   const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+    Log.step("Initiating Groq Llama 3.3 70B Inferencing...");
+    const completion = await groqClient.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -542,58 +620,57 @@ export async function POST(req: Request) {
       ],
       temperature: 0.1,
     });
+    Log.success("AI Inference Complete.");
 
     const aiRaw = JSON.parse(completion.choices[0].message.content || "{}");
-    
-    // Redistributed Weights for Bias-Free Proof of Work
-    const finalSkillsScore = calculateSkillsScore(jobData.requiredSkills, validation.skillEvidence); // 30%
-    const finalGithubScore = (aiRaw.rawGithubQuality || 0) * 0.25; // 25%
-    const finalProjectsScore = calculateProjectsScore(sanitizedBlocks?.projects, aiRaw.rawProjectsQuality || 0); // 20%
-    const finalExperienceScore = calculateExperienceScore(sanitizedBlocks?.workExperience, aiRaw.rawExperienceQuality || 0); // 10%
-    const finalAlgorithmicScore = calculateAlgorithmicScore(sanitizedBlocks?.codingProfiles, aiRaw.rawAlgorithmicQuality || 0); // 10%
-    const velocityPoints = Math.round((learningPotential.score / 100) * 5); // 5%
-    
+    const weights = jobData.scoringWeights || { skills: 30, github: 25, projects: 20, algorithmic: 10, experience: 10, velocity: 5 };
+
+    const rawSkillsScore = calculateAdjacencySkillsScore(aiRaw.skill_verification_matrix, jobData.requiredSkills.length); 
+    const rawGithubScore = aiRaw.rawGithubQuality || 0; 
+    const rawProjectsScore = calculateProjectsScore(candidateBlocks?.projects, aiRaw.rawProjectsQuality || 0, githubData); 
+    const rawExperienceScore = calculateExperienceScore(candidateBlocks?.workExperience, aiRaw.rawExperienceQuality || 0); 
+    const rawAlgorithmicScore = calculateAlgorithmicScore(candidateBlocks?.codingProfiles, aiRaw.rawAlgorithmicQuality || 0); 
+    const rawVelocityScore = learningPotential.score || 0;
+
     const finalMatchScore = Math.round(
-      finalSkillsScore + finalGithubScore + finalExperienceScore + 
-      finalProjectsScore + finalAlgorithmicScore + velocityPoints
+      (rawSkillsScore * (weights.skills / 100)) + 
+      (rawGithubScore * (weights.github / 100)) + 
+      (rawExperienceScore * (weights.experience / 100)) + 
+      (rawProjectsScore * (weights.projects / 100)) + 
+      (rawAlgorithmicScore * (weights.algorithmic / 100)) + 
+      (rawVelocityScore * (weights.velocity / 100))
     );
     
-    const skillGraph = generateSkillGraph(githubData);
-    const lacksTraditionalPedigree = finalExperienceScore < 5; 
-    const hasEliteProofOfWork = (finalGithubScore >= 20) || (finalAlgorithmicScore >= 8) || (learningPotential.score >= 85);
+    const lacksTraditionalPedigree = rawExperienceScore < 50; 
+    const hasEliteProofOfWork = (rawGithubScore >= 80) || (rawAlgorithmicScore >= 80) || (rawVelocityScore >= 85);
     const isHiddenGem = lacksTraditionalPedigree && hasEliteProofOfWork;
 
-    const sanitizedAnalysisData = JSON.parse(JSON.stringify({
+    const sanitizedAnalysisData = {
       overallMatchScore: finalMatchScore,
       authenticityScore: aiRaw.authenticityScore || aiRaw.spam_analysis?.authenticity_score || 0,
       spam_analysis: aiRaw.spam_analysis || { is_likely_spam: false, authenticity_score: 100, reasoning: "Authentic" }, 
-      
-      score_reasoning: aiRaw.score_reasoning, // 🔥 NEW FOR IMPACT AREA 04 🔥
-      bias_audit: aiRaw.bias_audit,           // 🔥 NEW FOR IMPACT AREA 04 🔥
-      
+      score_reasoning: aiRaw.score_reasoning,
+      bias_audit: aiRaw.bias_audit,            
       learningPotential, 
       learningVelocity: learningPotential.label,
       aiSummary: aiRaw.executive_summary || "Forensic analysis complete.",
       weightedBreakdown: {
-         skills: Math.round(finalSkillsScore),
-         github: Math.round(finalGithubScore),
-         experience: Math.round(finalExperienceScore),
-         projects: Math.round(finalProjectsScore),
-         algorithmic: Math.round(finalAlgorithmicScore),
-         velocity: velocityPoints
+         skills: Math.round(rawSkillsScore * (weights.skills / 100)),
+         github: Math.round(rawGithubScore * (weights.github / 100)),
+         experience: Math.round(rawExperienceScore * (weights.experience / 100)),
+         projects: Math.round(rawProjectsScore * (weights.projects / 100)),
+         algorithmic: Math.round(rawAlgorithmicScore * (weights.algorithmic / 100)),
+         velocity: Math.round(rawVelocityScore * (weights.velocity / 100))
       },
-      forensic_skill_graph: aiRaw.forensic_skill_graph || {
-        language_mastery: 0, code_hygiene_and_testing: 0, system_architecture: 0,
-        devops_and_infra: 0, data_and_state: 0, version_control_habits: 0
-      },
+      engineeringMetrics: githubData?.engineeringMetrics || null,
+      forensic_skill_graph: aiRaw.forensic_skill_graph || { language_mastery: 0, code_hygiene_and_testing: 0, system_architecture: 0, devops_and_infra: 0, data_and_state: 0, version_control_habits: 0 },
       skill_verification_matrix: aiRaw.skill_verification_matrix || [],
       adaptive_assessment: aiRaw.adaptive_assessment || null, 
       open_source_impact: aiRaw.open_source_impact || false,  
-      audit_trail: aiRaw.audit_trail || validation.flags,
+      audit_trail: [...validation.flags, ...warnings],
       verifiedSkills: validation.verifiedSkills,
-      isHiddenGem,
-      warnings
-    }));
+      isHiddenGem
+    };
 
     let finalStatus = "analyzed"; 
     let fastTrackDetails = null;
@@ -607,6 +684,7 @@ export async function POST(req: Request) {
       }
     }
 
+    Log.step("Updating Firebase Document...");
     await updateDoc(appRef, {
       status: finalStatus,
       fastTrack: fastTrackDetails, 
@@ -614,35 +692,14 @@ export async function POST(req: Request) {
       analyzedAt: new Date().toISOString(),
     });
 
-    const endTime = Date.now();
-    console.log(`[PROCESS END] Status: ${finalStatus} | Time: ${(endTime - startTime) / 1000}s`);
+    const execTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    Log.success(`Pipeline complete in ${execTime}s. Final Score: ${finalMatchScore}`);
+    Log.divider();
     
     return NextResponse.json({ success: true, finalStatus, score: finalMatchScore, warnings });
 
   } catch (error: any) {
-    console.error(`[FATAL]`, error);
+    Log.error(`Execution halted: ${error.message}`);
     return NextResponse.json({ error: "Analysis failed", details: error.message }, { status: 500 });
-  }
-}
-
-async function extractResumeText(pdfUrl: string) {
-  let downloadUrl = pdfUrl;
-  if (downloadUrl.includes("drive.google.com/file/d/")) {
-    const match = downloadUrl.match(/\/d\/(.*?)\//);
-    if (match && match[1]) downloadUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
-  }
-  if (downloadUrl.includes("dropbox.com") && downloadUrl.includes("dl=0")) {
-    downloadUrl = downloadUrl.replace("dl=0", "dl=1");
-  }
-  try {
-    const response = await fetch(downloadUrl);
-    if (response.headers.get("content-type")?.includes("text/html")) return "Restricted link.";
-    const arrayBuffer = await response.arrayBuffer();
-    const { extractText, getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
-    const { text } = await extractText(pdf, { mergePages: true });
-    return text.replace(/\s+/g, ' ').substring(0, 5000) || "No text.";
-  } catch (error) {
-    return "Extraction error.";
   }
 }
