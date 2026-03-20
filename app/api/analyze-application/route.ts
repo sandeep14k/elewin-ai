@@ -52,217 +52,240 @@ async function getCachedOrFetch<T>(
   return sanitizedValue;
 }
 // ==========================================
-// 2. OMNISCIENT GITHUB AGGREGATOR (BEHAVIORAL FORENSICS)
+// 2. OMNISCIENT GITHUB AGGREGATOR (CONCURRENT PARALLEL ENGINE)
 // ==========================================
 async function fetchDeepGitHubData(username: string, userToken?: string) {
-  Log.step(`Initiating Behavioral & Architectural scan for: @${username}`);
+  Log.step(`Initiating Parallel Concurrent Architecture Scan for: @${username}`);
   const startTime = Date.now();
   const authToken = userToken || process.env.GITHUB_TOKEN;
-
-  // 🔥 OPTIMIZATION: We only deep-scan the TOP 5 repos to prevent 502 Bad Gateway timeouts,
-  // but we still get the basic stats for up to 25 repos.
-  const query = `
-    query($login: String!) {
-      user(login: $login) {
-        createdAt
-        followers { totalCount }
-        
-        # Deep Forensic Scan (Top 5 Repos)
-        topRepos: repositories(first: 5, orderBy: {field: PUSHED_AT, direction: DESC}, ownerAffiliations: OWNER, isFork: false) {
-          nodes {
-            name
-            stargazerCount
-            createdAt
-            pushedAt
-            
-            languages(first: 5, orderBy: {field: SIZE, direction: DESC}) { edges { size, node { name } } }
-
-            packageJson: object(expression: "HEAD:package.json") { ... on Blob { text } }
-            dockerfile: object(expression: "HEAD:Dockerfile") { ... on Blob { byteSize } }
-            githubActions: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
-            readme: object(expression: "HEAD:README.md") { ... on Blob { byteSize } }
-            jestConfig: object(expression: "HEAD:jest.config.js") { ... on Blob { byteSize } }
-
-            appTsx: object(expression: "HEAD:src/App.tsx") { ... on Blob { text } }
-            mainPy: object(expression: "HEAD:main.py") { ... on Blob { text } }
-
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 30) {
-                    nodes { message, committedDate, additions, deletions }
-                  }
-                }
-              }
-            }
+  
+  try {
+    // ----------------------------------------------------------------
+    // PHASE 1: THE DISCOVERY QUERY (Lightweight & Fast)
+    // ----------------------------------------------------------------
+    Log.metric("Phase 1", "Discovering all repositories...");
+    const discoveryQuery = `
+      query($login: String!) {
+        user(login: $login) {
+          createdAt
+          followers { totalCount }
+          pullRequests(first: 1) { totalCount }
+          issues(first: 1) { totalCount }
+          contributionsCollection {
+            contributionCalendar { totalContributions }
+          }
+          # Get up to 50 repos, but ONLY basic info so it doesn't timeout
+          repositories(first: 50, orderBy: {field: PUSHED_AT, direction: DESC}, ownerAffiliations: OWNER, isFork: false) {
+            nodes { name, stargazerCount, pushedAt }
           }
         }
-        
-        contributionsCollection {
-          restrictedContributionsCount
-          contributionCalendar { totalContributions, weeks { contributionDays { contributionCount, date } } }
+      }
+    `;
+
+    const res = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: discoveryQuery, variables: { login: username } }),
+    });
+    
+    if (!res.ok) throw new Error(`Phase 1 Failed: HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.errors) throw new Error(json.errors[0].message);
+
+    const user = json.data.user;
+    if (!user) return null;
+
+    // Grab top 20 most recent repos to prevent hitting Groq's max token limit
+    const activeRepos = user.repositories.nodes.slice(0, 20); 
+    Log.success(`Discovered ${activeRepos.length} active repositories.`);
+
+    // ----------------------------------------------------------------
+    // PHASE 2: CONCURRENT DEEP EXTRACTION (The Mind-Blower)
+    // ----------------------------------------------------------------
+    Log.metric("Phase 2", `Launching ${activeRepos.length} parallel extraction threads...`);
+    
+    // We map over the repos and fire all the requests at the EXACT SAME TIME
+    const deepDataPromises = activeRepos.map((repo: any) => 
+      fetchSingleRepoDeep(username, repo.name, authToken)
+    );
+
+    // Wait for all 20 parallel threads to finish
+    const deepReposData = await Promise.all(deepDataPromises);
+    const validRepos = deepReposData.filter(r => r !== null);
+     
+    // ----------------------------------------------------------------
+    // PHASE 3: AGGREGATE THE INTELLIGENCE
+    // ----------------------------------------------------------------
+    const devPersona = {
+      detectedFrameworks: new Set<string>(),
+      infrastructure: new Set<string>(),
+      databases: new Set<string>(),
+    };
+
+    let totalCodeBytes = 0;
+    let hygienePoints = 0;
+    let maxHygienePoints = 0;
+    let highestComplexityScore = 0;
+    const languageMap: Record<string, number> = {};
+
+    validRepos.forEach((repo: any) => {
+      // Aggregate Languages
+      repo.languages.forEach((lang: any) => {
+        languageMap[lang.name] = (languageMap[lang.name] || 0) + lang.bytes;
+        totalCodeBytes += lang.bytes;
+      });
+
+      // Aggregate Stack
+      repo.frameworks.forEach((f: string) => devPersona.detectedFrameworks.add(f));
+      repo.infra.forEach((i: string) => devPersona.infrastructure.add(i));
+      repo.db.forEach((d: string) => devPersona.databases.add(d));
+
+      // Aggregate Hygiene
+      maxHygienePoints += 3;
+      if (repo.hygiene.hasDocs) hygienePoints++;
+      if (repo.hygiene.hasTests) hygienePoints++;
+      if (repo.hygiene.hasCI) hygienePoints++;
+
+if (repo.logicComplexity > highestComplexityScore) highestComplexityScore = repo.logicComplexity;
+    });
+
+    const finalData = {
+      profile: { createdAt: user.createdAt, followers: user.followers.totalCount },
+      repos: validRepos,
+      languageBreakdown: languageMap,
+      engineeringMetrics: {
+        totalCodeBytes,
+        hygieneScore: maxHygienePoints > 0 ? Math.round((hygienePoints / maxHygienePoints) * 100) : 0,
+        peakLogicComplexity: highestComplexityScore,
+        stack: {
+          frameworks: Array.from(devPersona.detectedFrameworks),
+          databases: Array.from(devPersona.databases),
+          infrastructure: Array.from(devPersona.infrastructure)
+        }
+      },
+      activity: { publicCommits: user.contributionsCollection.contributionCalendar.totalContributions }
+    };
+
+    const execTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    Log.success(`Massive Parallel Extraction complete in ${execTime}s`);
+    
+    return finalData;
+
+  } catch (error) {
+    Log.warn(`GraphQL Failed, attempting REST fallback: ${error}`);
+    return await fetchGitHubRestEnhanced(username, authToken as string);
+  }
+}
+
+// ==========================================
+// HELPER: SINGLE REPO DEEP EXTRACTOR
+// ==========================================
+async function fetchSingleRepoDeep(username: string, repoName: string, authToken: string) {
+  const query = `
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        name
+        stargazerCount
+        createdAt
+        languages(first: 5, orderBy: {field: SIZE, direction: DESC}) { edges { size, node { name } } }
+
+        packageJson: object(expression: "HEAD:package.json") { ... on Blob { text } }
+        dockerfile: object(expression: "HEAD:Dockerfile") { ... on Blob { byteSize } }
+        githubActions: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
+        readme: object(expression: "HEAD:README.md") { ... on Blob { byteSize } }
+        jestConfig: object(expression: "HEAD:jest.config.js") { ... on Blob { byteSize } }
+
+        appTsx: object(expression: "HEAD:src/App.tsx") { ... on Blob { text } }
+        mainPy: object(expression: "HEAD:main.py") { ... on Blob { text } }
+
+        defaultBranchRef {
+          target {
+            ... on Commit {
+              history(first: 20) { nodes { additions, committedDate } }
+            }
+          }
         }
       }
     }
   `;
 
   try {
-    const response = await fetch("https://api.github.com/graphql", {
+    const res = await fetch("https://api.github.com/graphql", {
       method: "POST",
       headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: { login: username } }),
+      body: JSON.stringify({ query, variables: { owner: username, name: repoName } }),
     });
-
-    if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
-    const json = await response.json();
-    if (json.errors) throw new Error(`GraphQL Error: ${json.errors[0].message}`);
-
-    const user = json.data.user;
-    if (!user) return null;
-
-    const devPersona = {
-      detectedFrameworks: new Set<string>(),
-      infrastructure: new Set<string>(),
-      hygieneScore: 0,
-    };
-
-    let totalCodeBytes = 0;
-    let hygienePoints = 0;
-    let maxHygienePoints = 0;
     
-    // 🧠 BEHAVIORAL TRACKERS
-    const chronotypeData = { morning: 0, afternoon: 0, night: 0, weekend: 0 };
-    let highestComplexityScore = 0;
+    const json = await res.json();
+    const repo = json.data?.repository;
+    if (!repo) return null;
 
-    const detailedRepos = user.topRepos.nodes.map((repo: any) => {
-      const repoHygiene = { hasDocs: false, hasTests: false, hasCI: false };
-      maxHygienePoints += 3; 
-
-      // Parse Languages
-      const formattedLanguages = repo.languages?.edges?.map((e: any) => ({ name: e.node.name, bytes: e.size })) || [];
-      formattedLanguages.forEach((lang: any) => { totalCodeBytes += lang.bytes; });
-
-      // Parse Architecture
-      if (repo.packageJson?.text) {
+    // Process single repo data...
+    const frameworks = new Set<string>();
+    const db = new Set<string>();
+    const infra = new Set<string>();
+    
+    if (repo.packageJson?.text) {
         try {
-          const pkg = JSON.parse(repo.packageJson.text);
-          const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-          if (deps.react) devPersona.detectedFrameworks.add("React");
-          if (deps.next) devPersona.detectedFrameworks.add("Next.js");
-          if (deps.tailwindcss) devPersona.detectedFrameworks.add("Tailwind");
+            const pkg = JSON.parse(repo.packageJson.text);
+            const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+            if (deps.react) frameworks.add("React");
+            if (deps.next) frameworks.add("Next.js");
+            if (deps.tailwindcss) frameworks.add("Tailwind");
+            if (deps.mongoose || deps.mongodb) db.add("MongoDB");
+            if (deps.pg || deps.sequelize) db.add("PostgreSQL");
         } catch (e) { /* Ignore */ }
-      }
+    }
 
-      if (repo.dockerfile) devPersona.infrastructure.add("Docker");
-      if (repo.githubActions?.entries?.length) { devPersona.infrastructure.add("GitHub Actions"); repoHygiene.hasCI = true; hygienePoints++; }
-      if (repo.readme?.byteSize > 100) { repoHygiene.hasDocs = true; hygienePoints++; }
-      if (repo.jestConfig || repo.packageJson?.text?.includes('"test"')) { repoHygiene.hasTests = true; hygienePoints++; }
+    if (repo.dockerfile) infra.add("Docker");
+    if (repo.githubActions?.entries?.length) infra.add("GitHub Actions");
 
-      // 🔥 TIME-DELTA FORENSICS (The Clone-Buster) 🔥
-      const commits = repo.defaultBranchRef?.target?.history?.nodes || [];
-      let totalAdditions = 0;
-      let isLikelyTutorial = false;
-      let engineeringDurationHours = 0;
-
-      if (commits.length > 0) {
-        commits.forEach((c: any) => { 
-          totalAdditions += c.additions; 
-          
-          // Behavioral Profiling: When are they coding?
-          const commitDate = new Date(c.committedDate);
-          const hour = commitDate.getHours();
-          const day = commitDate.getDay();
-          
-          if (day === 0 || day === 6) chronotypeData.weekend++;
-          if (hour >= 0 && hour < 6) chronotypeData.night++;
-          else if (hour >= 6 && hour < 12) chronotypeData.morning++;
-          else chronotypeData.afternoon++;
-        });
-
-        // Calculate time between first and last commit in this batch
-        const firstCommitTime = new Date(commits[commits.length - 1].committedDate).getTime();
-        const lastCommitTime = new Date(commits[0].committedDate).getTime();
-        engineeringDurationHours = (lastCommitTime - firstCommitTime) / (1000 * 60 * 60);
-
-        // If they added > 2000 lines but the entire repo was built in under 2 hours -> Flag as Clone
-        if (totalAdditions > 2000 && engineeringDurationHours < 2) {
-            isLikelyTutorial = true;
-        }
-      }
-
-      // 🔥 CYCLOMATIC COMPLEXITY ESTIMATOR 🔥
-      const rawCodeSnippets = [];
-      let repoComplexity = 0;
-      
-      const analyzeComplexity = (code: string, fileName: string) => {
-          rawCodeSnippets.push({ file: fileName, code: code.substring(0, 1500) });
-          // Count logic branches (if, for, while, switch, &&, ||)
-          const logicMatches = code.match(/(if\s*\(|for\s*\(|while\s*\(|switch\s*\(|&&|\|\||\?)/g);
-          repoComplexity += logicMatches ? logicMatches.length : 0;
-      };
-
-      if (repo.appTsx?.text) analyzeComplexity(repo.appTsx.text, 'App.tsx');
-      if (repo.mainPy?.text) analyzeComplexity(repo.mainPy.text, 'main.py');
-      
-      if (repoComplexity > highestComplexityScore) highestComplexityScore = repoComplexity;
-
-      return {
-        name: repo.name,
-        hygiene: repoHygiene,
-        isLikelyTutorial,
-        engineeringDurationHours: Math.round(engineeringDurationHours),
-        logicComplexity: repoComplexity,
-        commitCount: commits.length,
-        url: `https://github.com/${username}/${repo.name}`,
-        languages: formattedLanguages,
-        rawCodeSnippets,
-        authoredByCandidate: commits.length > 0 
-      };
-    });
-
-    devPersona.hygieneScore = maxHygienePoints > 0 ? Math.round((hygienePoints / maxHygienePoints) * 100) : 0;
-
-    // Determine Chronotype Identity
-    let chronotypeLabel = "Balanced";
-    if (chronotypeData.night > chronotypeData.morning + chronotypeData.afternoon) chronotypeLabel = "Night Owl 🦉";
-    else if (chronotypeData.weekend > (chronotypeData.morning + chronotypeData.afternoon + chronotypeData.night) * 0.4) chronotypeLabel = "Weekend Warrior ⚔️";
-    else if (chronotypeData.morning > chronotypeData.afternoon && chronotypeData.morning > chronotypeData.night) chronotypeLabel = "Early Bird 🌅";
-
-    const calendar = user.contributionsCollection.contributionCalendar;
+    const commits = repo.defaultBranchRef?.target?.history?.nodes || [];
+    let totalAdditions = 0;
+    commits.forEach((c: any) => { totalAdditions += c.additions; });
     
-    const finalData = {
-      repos: detailedRepos,
-      engineeringMetrics: {
-        totalCodeBytes,
-        hygieneScore: devPersona.hygieneScore,
-        peakLogicComplexity: highestComplexityScore,
-        stack: {
-          frameworks: Array.from(devPersona.detectedFrameworks),
-          infrastructure: Array.from(devPersona.infrastructure)
-        }
-      },
-      behavioralProfile: {
-          chronotype: chronotypeLabel,
-          commitDistribution: chronotypeData
-      },
-      activity: { publicCommits: calendar.totalContributions }
+    let isLikelyTutorial = false;
+    if (commits.length > 0) {
+        const first = new Date(commits[commits.length - 1].committedDate).getTime();
+        const last = new Date(commits[0].committedDate).getTime();
+        const durationHours = (last - first) / (1000 * 60 * 60);
+        if (totalAdditions > 2000 && durationHours < 2) isLikelyTutorial = true;
+    }
+
+    // 🔥 TYPE FIX APPLIED HERE 🔥
+    let logicComplexity = 0;
+    const rawCodeSnippets: { file: string; code: string }[] = []; 
+    
+    const analyze = (code: string, file: string) => {
+        rawCodeSnippets.push({ file, code: code.substring(0, 1000) });
+        const matches = code.match(/(if\s*\(|for\s*\(|while\s*\(|switch\s*\(|&&|\|\||\?)/g);
+        logicComplexity += matches ? matches.length : 0;
     };
+    if (repo.appTsx?.text) analyze(repo.appTsx.text, 'App.tsx');
+    if (repo.mainPy?.text) analyze(repo.mainPy.text, 'main.py');
 
-    const execTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    Log.success(`Behavioral architecture mapped in ${execTime}s`);
-    Log.metric("Chronotype", finalData.behavioralProfile.chronotype);
-    Log.metric("Peak Complexity Score", finalData.engineeringMetrics.peakLogicComplexity);
-    Log.metric("Hygiene Score", `${finalData.engineeringMetrics.hygieneScore}/100`);
-    
-    return finalData;
-
-  } catch (error) {
-    Log.warn(`GraphQL Failed, attempting REST fallback: ${error}`);
-    // Rest fallback stays the same
-    return await fetchGitHubRestEnhanced(username, authToken as string);
+    return {
+      name: repo.name,
+      url: `https://github.com/${username}/${repo.name}`,
+      languages: repo.languages?.edges?.map((e: any) => ({ name: e.node.name, bytes: e.size })) || [],
+      frameworks: Array.from(frameworks),
+      db: Array.from(db),
+      infra: Array.from(infra),
+      hygiene: {
+        hasDocs: repo.readme?.byteSize > 100,
+        hasTests: !!repo.jestConfig || repo.packageJson?.text?.includes('"test"'),
+        hasCI: !!repo.githubActions?.entries?.length
+      },
+      isLikelyTutorial,
+      logicComplexity,
+      commitCount: commits.length,
+      authoredByCandidate: commits.length > 0,
+      rawCodeSnippets
+    };
+  } catch (e) {
+    return null; // If one repo fails, it doesn't crash the others!
   }
 }
-
 // ==========================================
 // 3. REST FALLBACK (Provides dummy metrics to prevent crashes)
 // ==========================================
