@@ -1,22 +1,38 @@
 # 🛡️ EleWin: The Zero-Trust Hiring Matrix
 
-**Deployed at:** https://elewin-ai-i2dw.vercel.app
-
-Traditional Applicant Tracking Systems (ATS) rely on blind trust. Candidates exaggerate their resumes, and recruiters waste hours guessing who can actually write code.
-
-**EleWin is an ATS Killer.**
-
-It operates on a strict **Zero-Trust Philosophy**. We do not care what a candidate claims — we only care what they can **mathematically prove**.
-
-By combining **AI-driven document forensics, corporate email validation, and Secure GitHub OAuth**, EleWin forces candidates to submit **verifiable Proof of Work**.
-
-If a claim isn't verified, it carries **0 weight in the final AI Match Score.**
+**Deployed at:** https://elewin-ai-i2dw.vercel.app  
 
 ---
 
-# 🧠 Core Philosophy: Proof of Work (PoW)
+## 🚨 Problem
 
-EleWin breaks down a candidate's profile into structured **Blocks**:
+Traditional Applicant Tracking Systems (ATS) rely on **blind trust**.  
+Candidates exaggerate resumes, and recruiters waste hours guessing who can *actually* write code.
+
+---
+
+## 💥 Solution
+
+**EleWin is an ATS Killer.**
+
+It operates on a strict **Zero-Trust Philosophy**:
+
+> We do not care what a candidate claims — we only care what they can **mathematically prove**.
+
+By combining:
+- ⚡ Llama 3.3 AI document forensics  
+- 🔐 Corporate email validation  
+- 🧩 Secure GitHub OAuth  
+
+EleWin forces candidates to submit **verifiable Proof of Work (PoW)**.
+
+> ❌ If a claim isn't verified → it carries **0 weight** in the final AI Match Score.
+
+---
+
+## 🧠 Core Philosophy: Proof of Work (PoW)
+
+EleWin breaks down every candidate into structured **Blocks**:
 
 - Experience  
 - Projects  
@@ -24,284 +40,177 @@ EleWin breaks down a candidate's profile into structured **Blocks**:
 - Skills  
 - Algorithms  
 
-Every professional claim must pass through our **verification gauntlet**.
+Each claim must pass a **verification gauntlet**.
 
 ---
 
-# 🔺 Experience Verification Triangle
+## 🔺 The Verification Triangle
 
-Proprietary enterprise experience cannot be scanned directly via public repositories.
-
-Candidates must verify roles using one of three paths.
-
-## Path A — The Corporate Authenticator
-
-AI validates that the provided email domain belongs to the claimed company.
-
-A **6-digit OTP** is dispatched to that corporate inbox to prove active employment.
+### 🅰️ Path A — Corporate Authenticator
+- Validates email domain belongs to the company  
+- Sends a **6-digit OTP** to corporate inbox  
+- Prevents free-email spoofing  
 
 ---
 
-## Path B — Secure Document Vault
+### 🅱️ Path B — Secure Document Vault + Deepfake Detection
+- Upload: Offer Letter / Payslip  
 
-Candidate uploads a:
+**Zero-Trust Processing:**
+- Scanned in RAM  
+- Instantly deleted  
+- No recruiter access to sensitive PII  
 
-- Offer Letter
-- Payslip
-
-An **AI Auditor** scans the document in **volatile RAM** to match names, dates, and companies.
-
-The file is **instantly purged after verification**.
-
-Recruiters **never see the sensitive document**, only the **verification badge**.
-
----
-
-## Path C — Public Proxy Weighting
-
-If neither verification option is available, the AI uses the candidate's **open-source timeline**.
-
-Example signals:
-
-- GitHub commits during employment period
-- Repository activity
-- Language usage
-
-This acts as a **mathematical authenticity proxy**.
+**Deepfake Detection:**
+- Llama 3.3 analyzes stylometry  
+- Detects “robotic narrative stability” of AI-generated docs  
+- Triggers **hard rejection** if suspicious  
 
 ---
 
-## Path D — Algorithmic Proof (Competitive Programming)
-
-Candidates can link their **LeetCode, Codeforces, CodeChef, and HackerRank** profiles.
-
-To prevent impersonation, EleWin enforces **Profile Text Verification**:
-
-- Candidate receives a **unique cryptographic hex code** (e.g., `EleWin-A1B2C3`)
-- They must place it temporarily in their platform profile ("About" or "City")
-- Backend scrapes and verifies ownership
-- Metrics are securely bound to their **EleWin Passport**
+### 🅲 Path C — Public Proxy Weighting
+- Uses GitHub activity as authenticity proof  
+- Checks:
+  - Commit history  
+  - Repo activity during employment  
 
 ---
 
-# 🕵️‍♂️ The "Anti-Cheat" Forensic Engine
+### 🅳 Path D — Algorithmic Proof
+- Links:
+  - LeetCode  
+  - Codeforces  
+  - CodeChef  
+  - HackerRank  
 
-When a candidate links their profile via **Secure GitHub OAuth**, EleWin performs **deep forensic extraction** using the **GitHub GraphQL API**.
-
----
-
-## 1. Dependency & CI/CD Auditing
-
-We don't just look at GitHub's basic language stats.
-
-Our GraphQL engine extracts **package.json blobs** to prove framework knowledge:
-
-- React
-- Next.js
-- Jest
-
-It also checks **.github/workflows** to verify real-world **DevOps and CI/CD experience**.
+**Anti-impersonation:**
+- Bio-verification handshake  
+- Paste cryptographic hex code into profile  
 
 ---
 
-## 2. Plagiarism & Authorship Detection
+## 🕵️‍♂️ Anti-Cheat Forensic Engine
 
-EleWin uses **Levenshtein distance algorithms** to fuzzy-match claimed resume projects to actual GitHub repositories.
+### 🔍 GitHub Deep Analysis
+- Uses GitHub GraphQL API  
 
-The AI checks the **isAuthoredByCandidate flag**.
-
-If a candidate links a popular open-source repo they merely **forked without contributing**, their **Authenticity Score is heavily penalized**.
-
----
-
-## 3. The 6-Dimensional Skill Graph
-
-Instead of generic frontend/backend scores, EleWin generates an **enterprise-grade radar chart** based on repository data.
-
-Dimensions include:
-
-- Language Mastery
-- Code Hygiene & Testing
-- System Architecture
-- DevOps & Infrastructure
-- Data & State Management
-- Version Control Habits
+**Checks include:**
+- `package.json` → Framework validation (React, Next.js)  
+- `.github/workflows` → CI/CD proof  
 
 ---
 
-## 4. Relational Skills Ontology
+### 🧬 Plagiarism & Authorship Detection
+- Uses **Levenshtein Distance**  
+- Matches resume projects to GitHub repos  
 
-EleWin doesn't just do keyword matching.
-
-Using our LLM, we generate a **Relational Skills Graph**:
-
-- Verified skills (e.g., Next.js, Prisma) act as **Core Nodes**
-- AI infers adjacent capabilities like:
-  - SSR
-  - Backend Routing
-  - Relational Databases
-
-This enables **deep capability inference beyond explicit claims**.
+Flags:
+- Forked repos  
+- Non-authored code  
 
 ---
 
-# 🪪 EleWin Passport
+### 🧠 Semantic Skill Adjacency
+- No keyword matching  
 
-Candidates verify their professional blocks **once**.
-
-These are stored permanently in the **EleWin Passport Library**.
-
-Future job applications allow candidates to:
-
-- Inject **pre-verified Proof of Work**
-- Securely attach **GitHub OAuth token** for **1-click apply**
-- Skip re-verification
+Example:
+- PostgreSQL requirement  
+- MySQL expertise → **85% transferable score**
 
 ---
 
-# 💎 Hidden Talent & Bias-Free Hiring
+## 💎 Glass-Box AI & Bias-Free Hiring
+
+### ⚖️ Live "What-If" Re-Ranking Engine
+- Recruiters adjust sliders in real time:
+  - Algorithms ↑  
+  - Experience ↓  
+
+✔ Instant leaderboard update  
+✔ Visual explanation via stacked bar charts  
+
+---
+
+### 🎯 Dynamic JD-Adaptive Rubrics
+- AI reads Job Description  
+- Distributes **100 points across categories**:
+  - Skills  
+  - GitHub  
+  - Projects  
+  - DSA  
+  - Experience  
+  - Velocity  
+
+---
+
+### 🛡️ Pedigree-Blind Sanitizer
+Before scoring, EleWin **removes bias at system level**:
+
+- Name ❌  
+- Email ❌  
+- Gender ❌  
+- Dates ❌  
+- University → `REDACTED_FOR_BIAS_PREVENTION`  
+
+> Bias is not reduced — it is **architecturally eliminated**.
+
+---
 
 ## 📈 Learning Potential Index (LPI)
 
-We don't just evaluate current skill — we track **growth trajectory**.
+Tracks:
+- Tech adoption timeline  
+- Commit momentum  
 
-EleWin generates an **LPI score (0–100)** by analyzing:
-
-- Technology adoption timeline
-- Commit momentum
-- Transition into advanced practices (CI/CD, testing)
-
----
-
-## 🌟 Hidden Gem Detection
-
-Traditional systems reject candidates with:
-
-- Low-tier colleges  
-- Career gaps  
-
-EleWin flags **Hidden Gems**:
-
-- Low Academics/Experience  
-- High Proof of Work  
-- Strong GitHub + Algorithmic + LPI signals  
+Identifies:
+> 🌟 **Hidden Gems** — low pedigree, high Proof of Work, high growth velocity  
 
 ---
 
-## 🙈 Blind Evaluation Mode
+## ⚙️ Tech Stack
 
-To eliminate bias, EleWin defaults to **Blind Mode**:
-
-- Names hidden  
-- Emails hidden  
-- GitHub handles hidden  
-
-Recruiters evaluate only:
-
-- Match Score  
-- LPI  
-- Skills Ontology  
-
-Identity is revealed **only after shortlisting**.
+| Layer            | Technology |
+|------------------|-----------|
+| Framework        | Next.js 14 (App Router, RSC) |
+| Database         | Firebase v10 (Firestore) |
+| Auth             | Firebase Auth + GitHub OAuth |
+| AI               | Groq (Llama 3.3 70B) |
+| Code Forensics   | GitHub GraphQL + REST API |
+| Math Engine      | fast-levenshtein |
+| PDF Parsing      | unpdf (in-memory) |
+| Styling          | Tailwind CSS |
+| Charts           | Recharts |
 
 ---
 
-# ⚙️ Quality-Weighted AI Scoring
+## 🚀 Project Setup
 
-EleWin enforces a strict **100-Point Match Score** based on deterministic math.
-
-| Signal | Weight | Logic |
-|------|------|------|
-| Skills Match | 25% | Exact match with job description. Boosted 1.5× if backed by deep GitHub repo data |
-| GitHub Quality | 20% | AI evaluates architectural complexity, code hygiene, and commit volume |
-| Verified Experience | 20% | Scored based on verified months. Unverified roles receive 0 multiplier |
-| Verified Projects | 15% | Capped quantity to prevent spam; 70% driven by AI-graded project complexity |
-| Algorithmic Proof | 10% | Based on verified rating/problems solved across platforms |
-| Academics | 5% | Uses College Tier Normalization Curve |
-| Learning Potential | 5% | Evaluates tech adoption timeline and LPI momentum |
-
----
-
-# 🤖 Auto Shortlisting & Pipeline
-
-Employers can set an **Auto-Shortlist Threshold**.
-
-Example: **85/100**
-
-If a candidate reaches this score:
-
-- System automatically sends **interview invite**
-- Email delivered via **Calendly link**
-
----
-
-# 🛠 Tech Stack
-
-| Layer | Technology |
-|------|------|
-| Framework | Next.js 14 (App Router, React Server Components) |
-| Database | Firebase v10 (Firestore) |
-| Authentication | Firebase Auth (Email/Password & GitHub OAuth) |
-| AI Engine | OpenAI API (GPT-4-Turbo) |
-| Code Forensics | GitHub GraphQL API & REST API |
-| Math Engine | fast-levenshtein |
-| PDF Parsing | unpdf |
-| Styling | Tailwind CSS |
-| UI | shadcn/ui |
-| Charts | Recharts |
-| Email | Resend |
-
----
-
-# 🚀 Project Setup
-
-## 1️⃣ Clone the Repository
-
+### 1️⃣ Clone Repository
 ```bash
 git clone https://github.com/sandeep14k/elewin-ai.git
 cd elewin-ai
 ```
-
-------------------------------------------------------------------------
-
-## 2️⃣ Install Dependencies
-
-``` bash
-npm install
-```
-
-------------------------------------------------------------------------
-
 ## 3️⃣ Environment Variables
 
-Create a **.env.local** file in the **root directory**.
+Create a `.env.local` file in the root directory:
 
-    # --- FIREBASE CLIENT CONFIG ---
-    NEXT_PUBLIC_FIREBASE_API_KEY="your_firebase_api_key"
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="your_project_id.firebaseapp.com"
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID="your_project_id"
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="your_project_id.appspot.com"
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your_sender_id"
-    NEXT_PUBLIC_FIREBASE_APP_ID="your_app_id"
+```env
+# --- FIREBASE ---
+NEXT_PUBLIC_FIREBASE_API_KEY="your_firebase_api_key"
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="your_project_id.firebaseapp.com"
+NEXT_PUBLIC_FIREBASE_PROJECT_ID="your_project_id"
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="your_project_id.appspot.com"
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your_sender_id"
+NEXT_PUBLIC_FIREBASE_APP_ID="your_app_id"
 
-    # --- OPENAI CONFIG ---
-    OPENAI_API_KEY="sk-proj-your-openai-secret-key"
+# --- GROQ ---
+GROQ_API_KEY="gsk_your_groq_api_key"
 
-    # --- GITHUB GRAPHQL CONFIG ---
-    GITHUB_TOKEN="ghp_your_github_personal_access_token"
+# --- GITHUB ---
+GITHUB_TOKEN="ghp_your_github_token"
 
-    # --- RESEND CONFIG ---
-    RESEND_API_KEY="re_your_resend_api_key"
-    NEXT_PUBLIC_BASE_URL="http://localhost:3000" # Local
-#NEXT_PUBLIC_BASE_URL="https://your-live-domain.com" # Production
-
-------------------------------------------------------------------------
-
-## ▶ Run Development Server
-
-``` bash
-npm run dev
-```
+# --- SYSTEM ---
+NEXT_PUBLIC_BASE_URL="http://localhost:3000"
 
 Open in browser:
 
@@ -309,81 +218,24 @@ Open in browser:
 
 ------------------------------------------------------------------------
 
-# 🗺 User Workflows
+## 🗺 User Workflows
 
-## 👨‍💼 Employer (HR Admin)
+### 👨‍💼 Employer (Command Center)
 
-### Create Job Post
+- **Deploy Role:** Paste JD → AI generates scoring rubric  
+- **Set Automation:** Auto-shortlist threshold + Calendly  
+- **Evaluate:** Head-to-head forensic dashboard  
 
-Define: - Role\
-- Required skills\
-- Minimum experience
+---
 
-### Automation Rules
+### 👨‍💻 Candidate (EleWin Passport)
 
-Set **match score threshold** (example **85/100**) and provide a
-**Calendly link**.
+- **Identity:** Upload resume + connect GitHub  
+- **Verify:** Pass verification gauntlet  
+- **Apply:** 1-click apply with Proof of Work  
 
-### Share Link
+---
 
-Distribute tracking link:
+## ⚡ Final Philosophy
 
-    xxxxxx//status/{submittedId}
-
-### View Matrix
-
-Watch the **Live Leaderboard** populate as candidates are ranked
-instantly.
-
-------------------------------------------------------------------------
-
-## 👨‍💻 Candidate Workflow
-
-### Intake
-
-Upload: - Job-specific **PDF Resume** - Securely connect **GitHub via
-OAuth**
-
-### AI Extraction
-
-Engine extracts claims into **structured blocks**.
-
-### Verification Gauntlet
-
-Candidate verifies: - Proprietary experience (**OTP or Document
-Vault**)\
-- Public **GitHub projects**
-
-### Passport Sync
-
-Verified blocks saved to **EleWin Passport** for future **1-click
-applications**.
-
-### Live Tracking
-
-Candidate receives a **dashboard URL** to monitor:
-
--   Match Score\
--   Shortlist status\
--   Live Forensic Skill Graph\
--   Interview invites
-
-------------------------------------------------------------------------
-
-# 🔒 Zero-Trust Hiring
-
-EleWin removes resume fraud by enforcing **Proof of Work verification**
-across all professional claims.
-
-**If it cannot be verified, it does not count.**
-
-------------------------------------------------------------------------
-
-# ⚡ EleWin
-
-**Trust Nothing.\
-Verify Everything.**
-
-
-**Trust Nothing.  
-Verify Everything.**
+> **Trust Nothing. Verify Everything.**
