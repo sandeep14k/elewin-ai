@@ -106,7 +106,7 @@ async function fetchDeepGitHubData(username: string, userToken?: string) {
     
     // We map over the repos and fire all the requests at the EXACT SAME TIME
     const deepDataPromises = activeRepos.map((repo: any) => 
-      fetchSingleRepoDeep(username, repo.name, authToken)
+      fetchSingleRepoDeep(username, repo.name, authToken as string)
     );
 
     // Wait for all 20 parallel threads to finish
