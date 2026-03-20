@@ -13,8 +13,7 @@ import {
   Sparkles, CheckCircle2, Copy, ExternalLink, 
   AlertTriangle, Link as LinkIcon, Lock, ShieldCheck, ChevronRight, Mail, Trash2, Fingerprint,
   School, X, Info, Trophy, LayoutGrid,
-  Code2, EyeOff,
-  Target
+  Code2, EyeOff, Target
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -123,7 +122,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 })
              }
           } else {
-             // If doc doesn't exist, still set fallbacks
+             // If doc doesnt exist, still set fallbacks
              setFormData(prev => ({ 
                ...prev, 
                candidateName: fetchedName || (fetchedEmail ? fetchedEmail.split("@")[0] : "Applicant"), 
@@ -468,7 +467,21 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             )}
 
             <form onSubmit={handleLiveParse} className="bg-white p-8 md:p-12 rounded-[40px] shadow-xl border border-slate-200 space-y-8">
-              <h2 className="text-2xl font-black text-slate-900">Identity Record</h2>
+              
+              {/* 🔥 NEW: BLIND EVALUATION BANNER (IMPACT AREA 04) 🔥 */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                <h2 className="text-2xl font-black text-slate-900">Identity Record</h2>
+                <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full border border-indigo-100">
+                   <EyeOff className="w-4 h-4" />
+                   <span className="text-[10px] font-black uppercase tracking-widest">Blind Evaluation Active</span>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6">
+                <p className="text-xs text-slate-600 font-medium">
+                  <strong>Privacy Notice:</strong> To eliminate hiring bias, our PII-Sanitizer will completely remove your Name, Email, Gender, and University Pedigree from your application before it reaches the AI scoring engine. You are judged strictly on your bytes of code.
+                </p>
+              </div>
               
               {user ? (
                 <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex items-center justify-between mb-6">

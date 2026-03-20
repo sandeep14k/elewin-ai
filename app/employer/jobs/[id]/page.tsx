@@ -5,9 +5,8 @@ import { getJobWithApplications, executeAutonomousShortlist, updateApplicationSt
 import { Job, Application } from "@/types/platform"
 import { 
   Github, FileText, Loader2, UserCheck, 
-   Sparkles, 
- Zap, Star, ChevronDown, ChevronUp, Info, 
-  Target, Network, EyeOff, Eye, ShieldAlert
+  Sparkles, Zap, Star, ChevronDown, ChevronUp, 
+  Info, Target, Network, EyeOff, Eye, ShieldAlert, ShieldCheck
 } from "lucide-react"
 import Navbar from "@/components/navbar"
 import { Button } from "@/components/ui/button"
@@ -44,7 +43,6 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
     const success = await updateApplicationStatus(appId, status)
     if (success) {
       setApplications(prev => prev.map(app => 
-        // FIX 1: Safely cast status using the Application interface instead of 'any'
         app.id === appId ? { ...app, status: status as Application["status"] } : app
       ))
     }
@@ -121,7 +119,6 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
         {/* --- LEADERBOARD --- */}
         <div className="space-y-6">
           {applications.map((app) => {
-            // FIX 2: Create a local "any" typed reference for analysis to bypass strict TS checking for the new hackathon fields
             const analysisExt = app.analysis as any;
 
             const chartData = [
@@ -138,7 +135,10 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
             const displayGithub = isBlindMode ? "Hidden for Bias Protection" : `@${app.githubUsername}`;
 
             return (
-              <div key={app.id} className={`bg-white border-2 rounded-3xl transition-all overflow-hidden ${app.status === 'shortlisted' ? 'border-green-400 bg-green-50/5' : 'border-slate-100 shadow-sm hover:shadow-md'}`}>
+              <div key={app.id} className={`bg-white border-2 rounded-3xl transition-all overflow-hidden ${
+                analysisExt?.spam_analysis?.is_likely_spam ? 'border-red-300 bg-red-50/10' : 
+                app.status === 'shortlisted' ? 'border-green-400 bg-green-50/5' : 'border-slate-100 shadow-sm hover:shadow-md'
+              }`}>
                 <div className="p-6 md:p-8">
                   <div className="flex flex-col lg:flex-row gap-8">
                     
@@ -163,6 +163,13 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                             <Star className="w-3 h-3 fill-current" /> Hidden Talent
                           </div>
                         )}
+                        
+                        {/* 🔥 NEW: OPEN SOURCE BADGE 🔥 */}
+                        {analysisExt?.open_source_impact && (
+                          <div className="flex items-center gap-1 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-purple-200">
+                            <Network className="w-3 h-3 fill-current" /> Open Source Contributor
+                          </div>
+                        )}
 
                         <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase border ${
                           analysisExt?.learningVelocity === 'High' || analysisExt?.learningVelocity === 'Exceptional Learner' ? 'bg-blue-600 text-white border-blue-700' : 'bg-slate-100 text-slate-600'
@@ -184,9 +191,69 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                          )}
                       </div>
 
-                      <p className="text-slate-600 text-sm leading-relaxed italic max-w-2xl mb-4">
-                        "{analysisExt?.aiSummary}"
-                      </p>
+                      {/* --- ULTIMATE ANTI-SPAM SHIELD HIGHLIGHT --- */}
+                      {analysisExt?.spam_analysis?.is_likely_spam ? (
+                        <div className="bg-red-50 border border-red-200 p-4 rounded-2xl mb-4 flex items-start gap-3 shadow-sm">
+                           <ShieldAlert className="w-6 h-6 text-red-600 shrink-0 mt-0.5 animate-pulse" />
+                           <div>
+                             <h4 className="text-sm font-black text-red-900 tracking-tight flex items-center gap-2">
+                               🚨 AI-Spam / Exaggeration Detected 
+                               <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-md text-[10px] uppercase font-black">
+                                 Authenticity: {analysisExt.spam_analysis.authenticity_score}/100
+                               </span>
+                             </h4>
+                             <p className="text-xs text-red-800 font-medium mt-1 leading-relaxed">
+                               {analysisExt.spam_analysis.reasoning}
+                             </p>
+                           </div>
+                        </div>
+                      ) : analysisExt?.spam_analysis?.authenticity_score > 80 ? (
+                        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl mb-4 inline-flex items-center gap-2 shadow-sm">
+                           <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                           <span className="text-xs font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2">
+                             Profile Authenticity Verified
+                             <span className="bg-emerald-200/50 text-emerald-700 px-2 py-0.5 rounded text-[10px]">
+                               Score: {analysisExt.spam_analysis.authenticity_score}/100
+                             </span>
+                           </span>
+                        </div>
+                      ) : null}
+
+                      {/* 🔥 NEW: IMPACT AREA 04 - EXPLICIT SCORE REASONING 🔥 */}
+                      <div className="bg-slate-50 p-6 rounded-[24px] border border-slate-200 mt-4 mb-4 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
+                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 flex items-center gap-1">
+                          <Target className="w-3 h-3" /> Explicit Score Reasoning
+                        </h4>
+                        <p className="text-sm text-slate-700 font-bold leading-relaxed">
+                          "{analysisExt?.score_reasoning || analysisExt?.aiSummary}"
+                        </p>
+                      </div>
+
+                      {/* 🔥 NEW: IMPACT AREA 04 - BIAS AUDIT BADGE 🔥 */}
+                      {analysisExt?.bias_audit && (
+                        <div className="mt-2 mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-start gap-2 shadow-sm">
+                          <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                          <p className="text-xs text-indigo-700 font-medium">
+                            <strong>Pedigree-Blind Guarantee:</strong> {analysisExt.bias_audit.audit_statement}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* 🔥 NEW: ADAPTIVE MICRO-ASSESSMENT 🔥 */}
+                      {analysisExt?.adaptive_assessment && (
+                        <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl mb-4 shadow-sm max-w-2xl">
+                           <h4 className="text-sm font-black text-indigo-900 tracking-tight flex items-center gap-2 mb-2">
+                             <Target className="w-4 h-4 text-indigo-600" /> Adaptive Interview Generation
+                           </h4>
+                           <p className="text-xs text-indigo-800 font-bold leading-relaxed mb-2">
+                             "{analysisExt.adaptive_assessment.question}"
+                           </p>
+                           <p className="text-[10px] text-indigo-600/80 font-black uppercase tracking-widest">
+                             Context: {analysisExt.adaptive_assessment.context}
+                           </p>
+                        </div>
+                      )}
 
                       {/* Display Coding Profiles if they exist */}
                       {(app as any).passportBlocks?.codingProfiles && Object.keys((app as any).passportBlocks.codingProfiles).length > 0 && (
@@ -209,7 +276,9 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                     {/* 3. Match Score & Accordion Trigger */}
                     <div className="lg:w-48 flex flex-col justify-center items-center bg-slate-50 rounded-2xl border border-slate-100 p-6">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Match Score</p>
-                        <span className="text-5xl font-black text-slate-900 mb-4">{analysisExt?.overallMatchScore || 0}</span>
+                        <span className={`text-5xl font-black mb-4 ${analysisExt?.spam_analysis?.is_likely_spam ? 'text-red-500' : 'text-slate-900'}`}>
+                          {analysisExt?.overallMatchScore || 0}
+                        </span>
                         
                         <Button 
                             variant="ghost" 
@@ -223,57 +292,59 @@ export default function EmployerJobDashboard({ params }: { params: Promise<{ id:
                     </div>
                   </div>
 
-                  {/* 4. The Forensic Audit Trail (Expandable) */}
+                {/* 4. The Glass-Box Verification Matrix (Expandable) */}
                   {expandedApp === app.id && (
                     <div className="mt-8 pt-8 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
-                        
-                        {/* SKILLS ONTOLOGY GRAPH (Recruiter View) */}
-                        {analysisExt?.skills_ontology && analysisExt.skills_ontology.core_nodes?.length > 0 && (
-                          <div className="mb-8">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Network className="w-4 h-4 text-purple-500" />
-                                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Inferred Skills Ontology</h4>
-                            </div>
-                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col items-center">
-                               <div className="flex flex-wrap justify-center gap-2 mb-6">
-                                 {analysisExt.skills_ontology.core_nodes.map((node: string, i: number) => (
-                                    <span key={i} className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-black shadow-sm border border-purple-500">
-                                      {node}
-                                    </span>
-                                 ))}
-                               </div>
-                               <div className="w-px h-6 bg-slate-300 -mt-6 mb-3"></div>
-                               <div className="flex flex-wrap justify-center gap-2">
-                                 {analysisExt.skills_ontology.inferred_nodes.map((node: string, i: number) => (
-                                    <span key={i} className="px-2.5 py-1 bg-white text-slate-600 rounded-md text-[10px] font-bold border border-slate-200 shadow-sm flex items-center gap-1.5">
-                                      <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div> {node}
-                                    </span>
-                                 ))}
-                               </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2 mb-4">
-                            <Info className="w-4 h-4 text-blue-500" />
-                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Forensic Discrepancy Log</h4>
+                        <div className="flex items-center gap-2 mb-6">
+                            <ShieldCheck className="w-5 h-5 text-orange-500" />
+                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Signal Extraction & Verification Report</h4>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {analysisExt?.audit_trail?.map((log: string, i: number) => (
-                                <div key={i} className="flex gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                    <span className="text-blue-500 font-black text-xs">0{i+1}</span>
-                                    {/* Obscure GitHub references in the logs if blind mode is on */}
-                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                                      {isBlindMode ? log.replace(/GitHub/g, "Source Repository").replace(/repo/g, "project") : log}
-                                    </p>
+                        
+                        <div className="grid grid-cols-1 gap-4 mb-8">
+                            {app.analysis?.skill_verification_matrix?.map((item: any, i: number) => (
+                                <div key={i} className={`flex flex-col gap-3 p-5 rounded-2xl border-2 ${
+                                    item.status === 'Verified' ? 'bg-green-50/50 border-green-100' : 
+                                    item.status === 'Falsified' ? 'bg-red-50/50 border-red-100' : 
+                                    'bg-slate-50 border-slate-100'
+                                }`}>
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg font-black text-slate-900">{item.skill}</span>
+                                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${
+                                                item.status === 'Verified' ? 'bg-green-100 text-green-700' : 
+                                                item.status === 'Falsified' ? 'bg-red-100 text-red-700' : 
+                                                'bg-slate-200 text-slate-600'
+                                            }`}>
+                                                {item.status}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-2">
+                                        <div>
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Resume Claim</span>
+                                            <span className="text-slate-700">{item.resumeClaim || "None"}</span>
+                                        </div>
+                                        <div>
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">GitHub Evidence</span>
+                                            <span className="text-slate-700">{item.githubEvidence || "No code found"}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-3 pt-3 border-t border-white/50">
+                                        <p className="text-sm font-medium text-slate-800 italic flex items-start gap-2">
+                                            <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                                            "{item.explanation}"
+                                        </p>
+                                    </div>
                                 </div>
                             ))}
                         </div>
                         
                         {/* Final Status Buttons in Expanded View */}
                         <div className="flex justify-end gap-3 mt-6">
-                            <Button onClick={() => handleStatusUpdate(app.id!, 'rejected')} variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl px-6">Reject</Button>
-                            <Button onClick={() => handleStatusUpdate(app.id!, 'shortlisted')} className="bg-slate-900 hover:bg-black text-white rounded-xl px-6">Shortlist</Button>
+                            <Button onClick={() => handleStatusUpdate(app.id!, 'rejected')} variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl px-6">Reject (Fails Verification)</Button>
+                            <Button onClick={() => handleStatusUpdate(app.id!, 'shortlisted')} className="bg-slate-900 hover:bg-black text-white rounded-xl px-6">Shortlist Candidate</Button>
                         </div>
                     </div>
                   )}

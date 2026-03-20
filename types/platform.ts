@@ -25,6 +25,13 @@ export interface Job {
     interviewLink: string;
   };
 }
+export interface SkillVerification {
+  skill: string;
+  status: "Verified" | "Unverified" | "Falsified";
+  resumeClaim: string | null;
+  githubEvidence: string | null;
+  explanation: string;
+}
 export interface Application {
   id?: string;
   jobId: string;
@@ -66,6 +73,7 @@ export interface Application {
       devops: number;
       architecture: number;
     };
+    skill_verification_matrix?: SkillVerification[];
     verifiedSkills: string[];
     validationFlags: string[]; // Fraud/Discrepancy alerts
     aiSummary: string;

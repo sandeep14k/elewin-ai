@@ -10,7 +10,10 @@ import {
   CalendarCheck, PartyPopper, ExternalLink,
   Target,
   Bot,
-  Network
+  Network,
+  ShieldAlert,
+  ShieldCheck,
+  EyeOff
 } from "lucide-react"
 
 import Link from "next/link"
@@ -22,7 +25,7 @@ import {
 
 export default function CandidateStatusPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [app, setApp] = useState<any>(null) // Using 'any' here temporarily to bypass strict type checks for the new fastTrack object
+  const [app, setApp] = useState<any>(null) 
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -60,14 +63,12 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
   
   const lpiTimeline = app.analysis?.learningPotential?.timeline?.map((t: any) => ({
     month: t.date,
-    // Create an "intensity" curve based on commits + new tech adoption
     intensity: t.commits + (t.newTech?.length || 0) * 15, 
     repo: t.repo,
     tech: t.newTech?.length > 0 ? t.newTech.join(", ") : "Continued mastery",
     hasCI: t.hasCI
   })) || [];
 
-  // Custom Tooltip for the LPI Chart
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -95,12 +96,9 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
           <ArrowLeft className="w-4 h-4" /> Back to Job Board
         </Link>
 
-        {/* --- THE ATS KILLER: FAST-TRACK REWARD UI --- */}
         {app.fastTrack?.triggered && app.fastTrack?.interviewLink && (
           <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-[32px] p-8 md:p-10 text-white shadow-2xl shadow-green-500/30 mb-8 animate-in zoom-in-95 duration-700 relative overflow-hidden">
-            {/* Background decoration */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-[80px] rounded-full pointer-events-none" />
-            
             <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
                <div className="flex-1 text-center md:text-left">
                   <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/20 rounded-full mb-4 text-[10px] font-black uppercase tracking-widest backdrop-blur-md border border-white/20 shadow-sm">
@@ -124,7 +122,6 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
           </div>
         )}
 
-        {/* --- STATUS HEADER --- */}
         <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm mb-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div>
@@ -150,11 +147,8 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
 
-        {/* --- GRID: SKILLS & FEEDBACK --- */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
-          
-          {/* Skill Graph (Left 2 Columns) */}
-          <div className="md:col-span-2 bg-[#050A15] rounded-[32px] p-8 text-white flex flex-col items-center shadow-xl shadow-slate-900/10">
+          <div className="md:col-span-2 bg-[#050A15] rounded-[32px] p-8 text-white flex flex-col items-center shadow-xl shadow-slate-900/10 h-max">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
                <Target className="w-4 h-4 text-orange-500" /> Generated Skill Graph
             </h3>
@@ -172,14 +166,44 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
             </p>
           </div>
 
-          {/* AI Insights (Right 3 Columns) */}
           <div className="md:col-span-3 space-y-6">
             
-            {/* Forensic Output Card */}
             <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
               <h3 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                 <Zap className="w-6 h-6 text-orange-500" /> Forensic Output
               </h3>
+
+              {app.analysis?.spam_analysis?.is_likely_spam ? (
+                <div className="bg-red-50 border border-red-200 p-5 rounded-2xl mb-6 flex items-start gap-3 shadow-sm">
+                   <ShieldAlert className="w-6 h-6 text-red-600 shrink-0 mt-0.5 animate-pulse" />
+                   <div>
+                     <h4 className="text-sm font-black text-red-900 tracking-tight flex items-center gap-2">
+                       🚨 Authenticity Alert
+                       <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-md text-[10px] uppercase font-black">
+                         Score: {app.analysis.spam_analysis.authenticity_score}/100
+                       </span>
+                     </h4>
+                     <p className="text-xs text-red-800 font-medium mt-1 leading-relaxed">
+                       {app.analysis.spam_analysis.reasoning}
+                     </p>
+                   </div>
+                </div>
+              ) : app.analysis?.spam_analysis?.authenticity_score > 80 ? (
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl mb-6 flex items-start gap-3 shadow-sm">
+                   <ShieldCheck className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                   <div>
+                     <h4 className="text-sm font-black text-emerald-900 tracking-tight flex items-center gap-2">
+                       Profile Authenticity Verified
+                       <span className="bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded text-[10px] uppercase font-black">
+                         Score: {app.analysis.spam_analysis.authenticity_score}/100
+                       </span>
+                     </h4>
+                     <p className="text-xs text-emerald-800 font-medium mt-1 leading-relaxed">
+                       No discrepancies found between resume claims and verified cryptographic proof of work.
+                     </p>
+                   </div>
+                </div>
+              ) : null}
               
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8 relative">
                  <p className="text-slate-600 leading-relaxed font-medium italic relative z-10">
@@ -194,12 +218,87 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
                  </div>
                  <div className="bg-white p-6 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-center hover:border-orange-200 transition-colors">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Market Match</p>
-                    <p className="text-3xl font-black text-orange-500">{app.analysis?.overallMatchScore || 0}%</p>
+                    <p className={`text-3xl font-black ${app.analysis?.spam_analysis?.is_likely_spam ? 'text-red-500' : 'text-orange-500'}`}>
+                      {app.analysis?.overallMatchScore || 0}%
+                    </p>
                  </div>
               </div>
             </div>
 
-            {/* Learning Potential Index Card */}
+            {/* 🔥 NEW: IMPACT AREA 04 BIAS AUDIT RECEIPT 🔥 */}
+            {app.analysis?.bias_audit && (
+              <div className="bg-[#050A15] border border-slate-800 p-8 rounded-[32px] shadow-lg text-white mb-6 relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 blur-[50px] rounded-full pointer-events-none" />
+                 <h3 className="text-xl font-black flex items-center gap-2 mb-4 relative z-10 text-emerald-400">
+                   <EyeOff className="w-6 h-6" /> Pedigree-Blind Guarantee
+                 </h3>
+                 <p className="text-sm font-medium text-slate-300 leading-relaxed relative z-10 mb-4">
+                   Your score was calculated without bias. Before reaching our AI, the following PII was physically scrubbed from your application payload:
+                 </p>
+                 <div className="flex flex-wrap gap-2 mb-6 relative z-10">
+                   <span className="bg-white/10 text-slate-300 px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-white/5 line-through decoration-red-500 decoration-2">Name & Gender</span>
+                   <span className="bg-white/10 text-slate-300 px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-white/5 line-through decoration-red-500 decoration-2">University Pedigree</span>
+                   <span className="bg-white/10 text-slate-300 px-3 py-1 rounded-lg text-[10px] font-black uppercase border border-white/5 line-through decoration-red-500 decoration-2">Location</span>
+                 </div>
+                 <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl relative z-10">
+                    <p className="text-xs text-emerald-300 font-bold italic">
+                      "{app.analysis.bias_audit.audit_statement}"
+                    </p>
+                 </div>
+              </div>
+            )}
+
+            {/* --- GLASS-BOX: CANDIDATE VERIFICATION REPORT --- */}
+            {app.analysis?.skill_verification_matrix && app.analysis.skill_verification_matrix.length > 0 && (
+              <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
+                 <div className="mb-6">
+                    <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                      <Search className="w-6 h-6 text-blue-500" /> Transparent Verification Report
+                    </h3>
+                    <p className="text-sm text-slate-500 font-medium mt-1">Exactly how our AI evaluated your Proof of Work against this role.</p>
+                 </div>
+
+                 <div className="space-y-4">
+                    {app.analysis.skill_verification_matrix.map((item: any, i: number) => (
+                        <div key={i} className={`flex flex-col gap-3 p-5 rounded-2xl border-2 ${
+                            item.status === 'Verified' ? 'bg-green-50/50 border-green-100' : 
+                            item.status === 'Falsified' ? 'bg-red-50/50 border-red-100' : 
+                            'bg-slate-50 border-slate-100'
+                        }`}>
+                            <div className="flex justify-between items-center">
+                                <span className="text-lg font-black text-slate-900">{item.skill}</span>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-md ${
+                                    item.status === 'Verified' ? 'bg-green-100 text-green-700' : 
+                                    item.status === 'Falsified' ? 'bg-red-100 text-red-700' : 
+                                    'bg-slate-200 text-slate-600'
+                                }`}>
+                                    {item.status}
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-2">
+                                <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Your Resume Claim</span>
+                                    <span className="text-slate-700 font-medium">{item.resumeClaim || "No explicit claim found"}</span>
+                                </div>
+                                <div className="bg-white p-3 rounded-xl border border-slate-100">
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Extracted GitHub Evidence</span>
+                                    <span className="text-slate-700 font-medium">{item.githubEvidence || "No code evidence found"}</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-2">
+                                <p className="text-sm font-bold text-slate-800 bg-white/50 p-4 rounded-xl flex items-start gap-2">
+                                    <Bot className="w-5 h-5 text-blue-500 shrink-0" />
+                                    "{item.explanation}"
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                 </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
               <div className="flex justify-between items-end mb-6">
                 <div>
@@ -238,62 +337,6 @@ export default function CandidateStatusPage({ params }: { params: Promise<{ id: 
               )}
             </div>
 
-            {/* AI CAREER COPILOT CARD */}
-            {app.analysis?.career_copilot_roadmap && app.analysis.career_copilot_roadmap.length > 0 && (
-              <div className="bg-[#050A15] p-8 rounded-[32px] text-white shadow-xl relative overflow-hidden">
-                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none" />
-                 <h3 className="text-xl font-black flex items-center gap-2 mb-6 relative z-10">
-                   <Bot className="w-6 h-6 text-blue-400" /> AI Career Copilot
-                 </h3>
-                 <div className="space-y-4 relative z-10">
-                   {app.analysis.career_copilot_roadmap.map((step: string, i: number) => (
-                     <div key={i} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex gap-4 items-start">
-                       <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 font-black text-xs mt-0.5">
-                         {i + 1}
-                       </div>
-                       <p className="text-sm font-medium text-slate-300 leading-relaxed">{step}</p>
-                     </div>
-                   ))}
-                 </div>
-              </div>
-            )}
-
-            {/* SKILLS ONTOLOGY GRAPH */}
-            {app.analysis?.skills_ontology && app.analysis.skills_ontology.core_nodes?.length > 0 && (
-              <div className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm">
-                <div className="mb-6">
-                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                    <Network className="w-6 h-6 text-purple-500" /> Relational Skills Graph
-                  </h3>
-                  <p className="text-sm text-slate-500 font-medium mt-1">Inferred capabilities based on verified core tech</p>
-                </div>
-                
-                <div className="relative p-6 bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden flex flex-col items-center">
-                   {/* Core Nodes */}
-                   <div className="flex flex-wrap justify-center gap-3 mb-8 relative z-10">
-                     {app.analysis.skills_ontology.core_nodes.map((node: string, i: number) => (
-                        <span key={i} className="px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-black shadow-lg shadow-purple-500/20 border border-purple-500">
-                          {node}
-                        </span>
-                     ))}
-                   </div>
-                   
-                   {/* Connection Lines (CSS UI Trick for Hackathons) */}
-                   <div className="w-px h-8 bg-slate-300 -mt-8 mb-4 relative z-0"></div>
-                   
-                   {/* Inferred Nodes */}
-                   <div className="flex flex-wrap justify-center gap-2 relative z-10">
-                     {app.analysis.skills_ontology.inferred_nodes.map((node: string, i: number) => (
-                        <span key={i} className="px-3 py-1.5 bg-white text-slate-600 rounded-lg text-xs font-bold border border-slate-200 shadow-sm flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div> {node}
-                        </span>
-                     ))}
-                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* HIDDEN GEM CARD */}
             {app.analysis?.isHiddenGem && (
               <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[32px] p-8 text-white shadow-lg shadow-orange-500/20">
                  <div className="flex items-start gap-5">
